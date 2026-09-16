@@ -1,0 +1,35 @@
+# Virtual environments
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Medical imaging data - NEVER commit
+*.nrrd
+*.seg.nrrd
+*.nii
+*.nii.gz
+*.dcm
+*.mhd
+*.raw
+
+# Model artifacts
+*.pt
+*.pth
+*.ckpt
+checkpoints/
+runs/
+
+# Local config
+settings.json
+.env
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
