@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -30,7 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from unet_inference_client import history, theme
+from unet_inference_client import history, server, theme
 from unet_inference_client.backend import Backend, MonaiLabelBackend
 from unet_inference_client.config import Settings
 
@@ -77,16 +78,35 @@ class BatchWorker(QObject):
         self.finished.emit(completed, skipped, failed)
 
 
+class ServerReader(QObject):
+    line = Signal(str)
+    stopped = Signal()
+
+    def __init__(self, process: server.ServerProcess):
+        super().__init__()
+        self.process = process
+
+    def run(self) -> None:
+        while self.process.running:
+            text = self.process.read_line()
+            if text is None:
+                break
+            self.line.emit(text)
+        self.stopped.emit()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, settings: Settings):
         super().__init__()
         self.settings = settings
         self.backend = MonaiLabelBackend(settings)
+        self.server = server.ServerProcess()
         self.thread = None
         self.worker = None
+        self.reader_thread = None
+        self.reader = None
         self.batch_started_at = None
         self.case_started_at = None
-        self.current_case = ""
         self.stored_results = []
 
         self.timer = QTimer(self)
@@ -94,7 +114,7 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self.tick)
 
         self.setWindowTitle("U-Net Inference Client")
-        self.resize(940, 700)
+        self.resize(960, 740)
 
         self.status_label = QLabel("Server: checking...")
         self.refresh_button = QPushButton("Refresh")
@@ -110,6 +130,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_run_tab(), "Run")
         self.tabs.addTab(self._build_batch_tab(), "Batch")
         self.tabs.addTab(self._build_results_tab(), "Results")
+        self.tabs.addTab(self._build_server_tab(), "Server")
         self.tabs.addTab(self._build_settings_tab(), "Settings")
 
         log_label = QLabel("Log")
@@ -139,9 +160,7 @@ class MainWindow(QMainWindow):
             f"color: {theme.AMBER}; font-family: monospace; font-size: 15px;"
         )
         self.total_timer_label = QLabel("")
-        self.total_timer_label.setStyleSheet(
-            f"color: {theme.TEXT_DIM}; font-family: monospace;"
-        )
+        self.total_timer_label.setStyleSheet(f"color: {theme.TEXT_DIM}; font-family: monospace;")
         self.batch_progress = QProgressBar()
         self.batch_progress.setTextVisible(False)
         self.batch_progress.setMaximum(1)
@@ -260,8 +279,52 @@ class MainWindow(QMainWindow):
         widget.setLayout(layout)
         return widget
 
+    def _build_server_tab(self) -> QWidget:
+        self.server_python_edit = QLineEdit(self.settings.server_python)
+        self.server_app_edit = QLineEdit(self.settings.server_app_dir)
+        self.server_studies_edit = QLineEdit(self.settings.studies_dir)
+        self.server_models_edit = QLineEdit(self.settings.server_models)
+        self.server_port_edit = QLineEdit(str(self.settings.server_port))
+        self.gpu_edit = QLineEdit(self.settings.gpu_index)
+
+        form = QFormLayout()
+        form.setSpacing(8)
+        form.addRow("MONAI Label python", self._with_browse(self.server_python_edit, directory=False))
+        form.addRow("App folder", self._with_browse(self.server_app_edit, directory=True))
+        form.addRow("Studies folder", self._with_browse(self.server_studies_edit, directory=True))
+        form.addRow("Models", self.server_models_edit)
+        form.addRow("Port", self.server_port_edit)
+        form.addRow("GPU index", self.gpu_edit)
+
+        self.server_start_button = QPushButton("Start server")
+        self.server_stop_button = QPushButton("Stop server")
+        self.server_stop_button.setEnabled(False)
+        self.server_start_button.clicked.connect(self.start_server)
+        self.server_stop_button.clicked.connect(self.stop_server)
+
+        note = QLabel(
+            "Starting a server here changes which studies folder is served. "
+            "A server started by this app keeps running after the app closes."
+        )
+        note.setStyleSheet(f"color: {theme.TEXT_DIM};")
+        note.setWordWrap(True)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        buttons.addWidget(self.server_start_button)
+        buttons.addWidget(self.server_stop_button)
+
+        layout = QVBoxLayout()
+        layout.addLayout(form)
+        layout.addWidget(note)
+        layout.addLayout(buttons)
+        layout.addStretch()
+        widget = QWidget()
+        widget.setLayout(layout)
+        return widget
+
     def _build_settings_tab(self) -> QWidget:
-        self.server_edit = QLineEdit(self.settings.server_url)
+        self.server_url_edit = QLineEdit(self.settings.server_url)
         self.model_edit = QLineEdit(self.settings.model)
         self.resolution_edit = QLineEdit(self.settings.resolution)
         self.results_edit = QLineEdit(self.settings.results_dir)
@@ -271,8 +334,8 @@ class MainWindow(QMainWindow):
 
         form = QFormLayout()
         form.setSpacing(8)
-        form.addRow("Server URL", self.server_edit)
-        form.addRow("Model", self.model_edit)
+        form.addRow("Server URL", self.server_url_edit)
+        form.addRow("Inference model", self.model_edit)
         form.addRow("Resolution label", self.resolution_edit)
         form.addRow("Results folder", self._with_browse(self.results_edit, directory=True))
         form.addRow("Studies folder", self._with_browse(self.studies_edit, directory=True))
@@ -314,7 +377,7 @@ class MainWindow(QMainWindow):
         self.log.appendPlainText(text)
 
     def save_settings(self) -> None:
-        self.settings.server_url = self.server_edit.text().strip()
+        self.settings.server_url = self.server_url_edit.text().strip()
         self.settings.model = self.model_edit.text().strip()
         self.settings.resolution = self.resolution_edit.text().strip()
         self.settings.results_dir = self.results_edit.text().strip()
@@ -323,9 +386,86 @@ class MainWindow(QMainWindow):
         self.settings.model_dir = self.model_dir_edit.text().strip()
         self.settings.skip_existing = self.skip_existing_box.isChecked()
         self.settings.save()
+        self.server_studies_edit.setText(self.settings.studies_dir)
         self.append("Settings saved.")
         self.refresh()
         self.reload_results()
+
+    def save_server_settings(self) -> None:
+        self.settings.server_python = self.server_python_edit.text().strip()
+        self.settings.server_app_dir = self.server_app_edit.text().strip()
+        self.settings.studies_dir = self.server_studies_edit.text().strip()
+        self.settings.server_models = self.server_models_edit.text().strip()
+        try:
+            self.settings.server_port = int(self.server_port_edit.text().strip())
+        except ValueError:
+            raise RuntimeError("Port must be a number.")
+        self.settings.gpu_index = self.gpu_edit.text().strip()
+        self.settings.server_url = f"http://127.0.0.1:{self.settings.server_port}"
+        self.settings.save()
+        self.server_url_edit.setText(self.settings.server_url)
+        self.studies_edit.setText(self.settings.studies_dir)
+
+    def start_server(self) -> None:
+        try:
+            self.save_server_settings()
+        except RuntimeError as exc:
+            self.append(str(exc))
+            return
+
+        if server.is_responding(self.settings.server_url):
+            self.append("A server is already answering on that port. Stop it first.")
+            return
+
+        try:
+            self.server.start(
+                self.settings.server_python_path(),
+                self.settings.server_app_path(),
+                self.settings.studies_path(),
+                self.settings.server_models,
+                self.settings.server_port,
+                self.settings.gpu_index,
+            )
+        except Exception as exc:
+            self.append(f"Could not start server: {exc}")
+            return
+
+        self.append(f"Starting server on port {self.settings.server_port}...")
+        self.append(f"  studies: {self.settings.studies_dir}")
+        self.server_start_button.setEnabled(False)
+        self.server_stop_button.setEnabled(True)
+
+        self.reader_thread = QThread()
+        self.reader = ServerReader(self.server)
+        self.reader.moveToThread(self.reader_thread)
+        self.reader_thread.started.connect(self.reader.run)
+        self.reader.line.connect(self.on_server_line)
+        self.reader.stopped.connect(self.reader_thread.quit)
+        self.reader_thread.finished.connect(self.reader_thread.deleteLater)
+        self.reader_thread.start()
+
+    def on_server_line(self, text: str) -> None:
+        if "Uvicorn running on" in text or "Application startup complete" in text:
+            self.append(f"  {text}")
+            QTimer.singleShot(1500, self.refresh)
+        elif "ERROR" in text or "Traceback" in text:
+            self.append(f"  {text}")
+
+    def stop_server(self) -> None:
+        if not self.server.running:
+            self.append("This app is not managing a server.")
+            self.server_start_button.setEnabled(True)
+            self.server_stop_button.setEnabled(False)
+            return
+        self.append("Stopping server...")
+        try:
+            self.server.stop()
+            self.append("Server stopped.")
+        except Exception as exc:
+            self.append(f"Could not stop server: {exc}")
+        self.server_start_button.setEnabled(True)
+        self.server_stop_button.setEnabled(False)
+        self.refresh()
 
     def refresh(self) -> None:
         is_up, message = self.backend.server_status()
@@ -336,6 +476,8 @@ class MainWindow(QMainWindow):
         self.batch_run_button.setEnabled(is_up)
         self.append(f"Server: {message}")
         if not is_up:
+            self.case_box.clear()
+            self.batch_list.clear()
             return
         try:
             cases = self.backend.list_cases()
@@ -460,7 +602,6 @@ class MainWindow(QMainWindow):
         if case_id.endswith("(skipped)"):
             self.append(f"Skipped {case_id.replace(' (skipped)', '')} — result already exists.")
             return
-        self.current_case = case_id
         self.case_started_at = time.monotonic()
         self.case_timer_label.setText("00:00")
         self.activity_label.setText(f"Running inference on {case_id}")
@@ -499,6 +640,20 @@ class MainWindow(QMainWindow):
             self.append(f"Launching Slicer for {case_id}...")
         except Exception as exc:
             self.append(f"Could not launch Slicer: {exc}")
+
+    def closeEvent(self, event) -> None:
+        if self.thread is not None and self.thread.isRunning():
+            answer = QMessageBox.question(
+                self, "Inference running",
+                "An inference job is still running. Close anyway?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            )
+            if answer == QMessageBox.No:
+                event.ignore()
+                return
+        if self.server.running:
+            self.server.detach()
+        event.accept()
 
 
 def main() -> None:

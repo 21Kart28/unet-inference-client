@@ -7,7 +7,7 @@ import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "neural-segmentation-client"
+CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "unet-inference-client"
 CONFIG_FILE = CONFIG_DIR / "settings.json"
 
 
@@ -21,6 +21,11 @@ class Settings:
     model_dir: str = ""
     resolution: str = "192x192x224"
     skip_existing: bool = True
+    server_python: str = ""
+    server_app_dir: str = ""
+    server_models: str = "deepedit"
+    server_port: int = 8000
+    gpu_index: str = "0"
 
     @classmethod
     def load(cls) -> "Settings":
@@ -48,6 +53,12 @@ class Settings:
 
     def model_path(self) -> Path | None:
         return Path(self.model_dir).expanduser() if self.model_dir else None
+
+    def server_python_path(self) -> Path | None:
+        return Path(self.server_python).expanduser() if self.server_python else None
+
+    def server_app_path(self) -> Path | None:
+        return Path(self.server_app_dir).expanduser() if self.server_app_dir else None
 
     def train_stats_path(self) -> Path | None:
         model_dir = self.model_path()
