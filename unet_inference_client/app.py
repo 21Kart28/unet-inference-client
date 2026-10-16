@@ -31,14 +31,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from unet_inference_client import history, server, theme
+from unet_inference_client import history, metrics, server, theme
 from unet_inference_client.backend import Backend, MonaiLabelBackend
+from unet_inference_client.compare_tab import CompareTab, format_dice, format_volume
 from unet_inference_client.config import Settings
 
 
 def format_duration(seconds: float) -> str:
     minutes, secs = divmod(int(seconds), 60)
     return f"{minutes:02d}:{secs:02d}"
+
+
+def server_problem_hint(message: str) -> str:
+    if message.startswith("unreachable"):
+        return "Server unreachable. Check the Server URL in Settings, or start the server on the Server tab."
+    return f"Server {message}. Check the inference model in Settings."
 
 
 class BatchWorker(QObject):
@@ -108,6 +115,9 @@ class MainWindow(QMainWindow):
         self.batch_started_at = None
         self.case_started_at = None
         self.stored_results = []
+        self.inference_busy = False
+        self.server_up = False
+        self.server_message = None
 
         self.timer = QTimer(self)
         self.timer.setInterval(1000)
@@ -130,6 +140,9 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_run_tab(), "Run")
         self.tabs.addTab(self._build_batch_tab(), "Batch")
         self.tabs.addTab(self._build_results_tab(), "Results")
+        self.compare_tab = CompareTab(settings, self.append)
+        self.compare_tab.metrics_saved.connect(self.reload_results)
+        self.tabs.addTab(self.compare_tab, "Compare")
         self.tabs.addTab(self._build_server_tab(), "Server")
         self.tabs.addTab(self._build_settings_tab(), "Settings")
 
@@ -248,21 +261,28 @@ class MainWindow(QMainWindow):
         return widget
 
     def _build_results_tab(self) -> QWidget:
-        self.results_table = QTableWidget(0, 5)
-        self.results_table.setHorizontalHeaderLabels(["Case", "Model", "Epoch", "Dice", "Saved"])
+        headers = ["Case", "Model", "Epoch", "Val Dice", "Volume (mm³)", "Dice vs GT", "Saved"]
+        self.results_table = QTableWidget(0, len(headers))
+        self.results_table.setHorizontalHeaderLabels(headers)
+        self.results_table.horizontalHeaderItem(3).setToolTip("Validation Dice of the checkpoint")
+        self.results_table.horizontalHeaderItem(5).setToolTip("Dice against ground truth, from the Compare tab")
         self.results_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.results_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.results_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.results_table.verticalHeader().setVisible(False)
+        self.results_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.results_table.cellDoubleClicked.connect(self.view_selected_result)
 
         self.results_count_label = QLabel("")
         self.results_count_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
         reload_button = QPushButton("Reload")
         view_button = QPushButton("View in Slicer")
+        compare_button = QPushButton("Compare")
         export_button = QPushButton("Export history CSV")
         reload_button.clicked.connect(self.reload_results)
         view_button.clicked.connect(self.view_selected_result)
+        compare_button.clicked.connect(self.compare_selected_result)
         export_button.clicked.connect(self.export_history)
 
         buttons = QHBoxLayout()
@@ -270,6 +290,7 @@ class MainWindow(QMainWindow):
         buttons.addStretch()
         buttons.addWidget(reload_button)
         buttons.addWidget(view_button)
+        buttons.addWidget(compare_button)
         buttons.addWidget(export_button)
 
         layout = QVBoxLayout()
@@ -472,9 +493,10 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"Server: {message}")
         color = theme.GREEN if is_up else theme.RED
         self.status_label.setStyleSheet(f"color: {color};")
-        self.run_button.setEnabled(is_up)
-        self.batch_run_button.setEnabled(is_up)
-        self.append(f"Server: {message}")
+        if message != self.server_message:
+            self.append(f"Server: {message}")
+        self.server_up, self.server_message = is_up, message
+        self._update_run_buttons()
         if not is_up:
             self.case_box.clear()
             self.batch_list.clear()
@@ -499,22 +521,40 @@ class MainWindow(QMainWindow):
         self.stored_results = stored
         self.results_table.setRowCount(len(stored))
         for row, result in enumerate(stored):
-            values = [result.case_id, result.model, result.epoch, result.dice, result.timestamp]
+            saved = metrics.load_metrics(result.output_dir) or {}
+            values = [
+                result.case_id, result.model, result.epoch, result.dice,
+                format_volume(saved.get("pred_volume_mm3")), format_dice(saved.get("dice")),
+                result.timestamp,
+            ]
             for column, value in enumerate(values):
                 self.results_table.setItem(row, column, QTableWidgetItem(str(value)))
         self.results_count_label.setText(f"{len(stored)} result(s) in {self.settings.results_dir}")
+        self.compare_tab.set_results(stored)
 
-    def view_selected_result(self) -> None:
+    def _selected_result(self) -> history.StoredResult | None:
         row = self.results_table.currentRow()
         if row < 0 or row >= len(self.stored_results):
             self.append("Select a result first.")
+            return None
+        return self.stored_results[row]
+
+    def view_selected_result(self) -> None:
+        result = self._selected_result()
+        if result is None:
             return
-        result = self.stored_results[row]
         try:
             self.backend.open_prediction(result.case_id, result.prediction_path)
             self.append(f"Launching Slicer for {result.case_id}...")
         except Exception as exc:
             self.append(f"Could not launch Slicer: {exc}")
+
+    def compare_selected_result(self) -> None:
+        result = self._selected_result()
+        if result is None:
+            return
+        self.compare_tab.load_result(result)
+        self.tabs.setCurrentWidget(self.compare_tab)
 
     def export_history(self) -> None:
         source = history.log_path(self.settings.results_path())
@@ -542,10 +582,21 @@ class MainWindow(QMainWindow):
         ]
 
     def _set_busy(self, busy: bool) -> None:
-        self.run_button.setEnabled(not busy)
-        self.batch_run_button.setEnabled(not busy)
+        self.inference_busy = busy
         self.refresh_button.setEnabled(not busy)
         self.batch_cancel_button.setEnabled(busy)
+        self._update_run_buttons()
+
+    def _update_run_buttons(self) -> None:
+        if self.inference_busy:
+            reason = "Inference is already running."
+        elif not self.server_up:
+            reason = server_problem_hint(self.server_message)
+        else:
+            reason = ""
+        for button in (self.run_button, self.batch_run_button):
+            button.setEnabled(not reason)
+            button.setToolTip(reason)
 
     def start_single(self) -> None:
         case_id = self.case_box.currentData()
@@ -642,10 +693,11 @@ class MainWindow(QMainWindow):
             self.append(f"Could not launch Slicer: {exc}")
 
     def closeEvent(self, event) -> None:
-        if self.thread is not None and self.thread.isRunning():
+        if self.inference_busy or self.compare_tab.busy:
+            job = "An inference job" if self.inference_busy else "A comparison"
             answer = QMessageBox.question(
-                self, "Inference running",
-                "An inference job is still running. Close anyway?",
+                self, "Job running",
+                f"{job} is still running. Close anyway?",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
             )
             if answer == QMessageBox.No:
