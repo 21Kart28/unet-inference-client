@@ -39,11 +39,15 @@ dataset, and review predictions in 3D Slicer.
     cd unet-inference-client
     python3 -m venv .venv
     source .venv/bin/activate
-    pip install -r requirements.txt
+    pip install -e .
+
+For development, `pip install -e ".[dev]"` adds pytest. Run the tests with `pytest`.
 
 ## Run
 
-    python -m unet_inference_client.app
+    unet-client
+
+`python -m unet_inference_client` does the same.
 
 On first launch, open the Settings and Server tabs and point the app at your MONAI Label
 installation, dataset, and results folder. Settings persist to
