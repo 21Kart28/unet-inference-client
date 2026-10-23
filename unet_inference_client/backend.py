@@ -175,7 +175,7 @@ class MonaiLabelBackend(Backend):
 
         elapsed = time.monotonic() - started
         self._write_manifest(output_dir, case_id, extension, epoch, dice, elapsed)
-        self._update_latest_symlink(output_dir)
+        self._update_latest_link(output_dir)
         history.record(
             self.settings.results_path(), case_id, "completed", elapsed,
             self.settings.model, epoch, dice, str(output_dir),
@@ -190,9 +190,9 @@ class MonaiLabelBackend(Backend):
         self.open_prediction(case_id, predictions[0])
 
     def open_prediction(self, case_id: str, prediction_path: Path) -> None:
-        slicer_binary = self.settings.slicer_path()
+        slicer_binary = self.settings.slicer_path() or slicer_view.find_slicer()
         if slicer_binary is None:
-            raise RuntimeError("Slicer path is not set. Configure it in Settings.")
+            raise RuntimeError("Couldn't find 3D Slicer. Set the Slicer executable in Settings.")
         studies_dir = self.settings.studies_path()
         if studies_dir is None:
             raise RuntimeError("Studies folder is not set. Configure it in Settings.")
@@ -228,8 +228,14 @@ class MonaiLabelBackend(Backend):
             manifest["model_sha256"] = hashlib.sha256(weights.read_bytes()).hexdigest()
         (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
 
-    def _update_latest_symlink(self, output_dir: Path) -> None:
+    def _update_latest_link(self, output_dir: Path) -> None:
         link = self.settings.results_path() / "latest"
-        if link.is_symlink() or link.exists():
-            link.unlink()
-        link.symlink_to(output_dir)
+        pointer = self.settings.results_path() / "latest.txt"
+        try:
+            if link.is_symlink() or link.exists():
+                link.unlink()
+            link.symlink_to(output_dir, target_is_directory=True)
+            pointer.unlink(missing_ok=True)
+        except OSError:
+            # Windows only allows symlinks in Developer Mode or as admin.
+            pointer.write_text(f"{output_dir}\n")

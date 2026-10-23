@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from unet_inference_client import history, metrics, server, theme
+from unet_inference_client import history, metrics, server, slicer_view, theme
 from unet_inference_client.backend import Backend, MonaiLabelBackend
 from unet_inference_client.compare_tab import CompareTab, format_dice, format_volume
 from unet_inference_client.config import Settings
@@ -351,6 +351,10 @@ class MainWindow(QMainWindow):
         self.results_edit = QLineEdit(self.settings.results_dir)
         self.studies_edit = QLineEdit(self.settings.studies_dir)
         self.slicer_edit = QLineEdit(self.settings.slicer_binary)
+        detected = slicer_view.find_slicer()
+        self.slicer_edit.setPlaceholderText(
+            f"Leave blank to use {detected}" if detected else "Couldn't find 3D Slicer. Use Browse to pick it."
+        )
         self.model_dir_edit = QLineEdit(self.settings.model_dir)
 
         form = QFormLayout()
