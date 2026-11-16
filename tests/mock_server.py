@@ -14,6 +14,8 @@ from urllib.parse import parse_qs, urlparse
 
 NRRD_HEADER = "NRRD0004\ntype: uint8\ndimension: 3\nsizes: 4 4 4\nspacings: 1 1 1\nencoding: raw\n\n"
 PREDICTION = NRRD_HEADER.encode() + bytes([0] * 21 + [1] * 22 + [0] * 21)
+IMAGE = NRRD_HEADER.encode() + bytes(range(64))
+TRAIN_STATS = {"epoch": 180, "eval": {"best_metric": 0.9123, "best_metric_epoch": 150}}
 
 
 class MockMonaiLabel:
@@ -23,6 +25,7 @@ class MockMonaiLabel:
         self.device = device
         self.gzip_output = gzip_output
         self.infer_response = PREDICTION
+        self.train_stats = {name: dict(TRAIN_STATS) for name in self.models}
         self.infer_calls = []
         self.url = ""
         self._server = None
@@ -36,9 +39,19 @@ class MockMonaiLabel:
 
             def do_GET(self):
                 path = urlparse(self.path).path
+                query = parse_qs(urlparse(self.path).query)
                 if path == "/info/":
                     models = {name: {"config": {"device": [mock.device]}} for name in mock.models}
-                    self._json({"models": models})
+                    labeled = sum(mock.cases.values())
+                    datastore = {"total": len(mock.cases), "completed": labeled,
+                                 "label_tags": {"final": labeled}, "train": labeled}
+                    self._json({"models": models, "train_stats": mock.train_stats, "datastore": datastore})
+                elif path == "/datastore/image":
+                    case = query.get("image", [""])[0]
+                    if case not in mock.cases:
+                        self.send_error(404)
+                        return
+                    self._bytes(IMAGE, f'attachment; filename="{case}.nrrd"')
                 elif path == "/datastore/":
                     objects = {
                         case: {"image": {"ext": ".nrrd"},
@@ -60,9 +73,14 @@ class MockMonaiLabel:
                 body = mock.infer_response
                 if mock.gzip_output:
                     body = gzip.compress(body)
+                self._bytes(body)
+
+            def _bytes(self, body, disposition=None):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")
                 self.send_header("Content-Length", str(len(body)))
+                if disposition:
+                    self.send_header("Content-Disposition", disposition)
                 self.end_headers()
                 self.wfile.write(body)
 

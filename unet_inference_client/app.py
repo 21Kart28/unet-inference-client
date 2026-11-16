@@ -32,9 +32,11 @@ from PySide6.QtWidgets import (
 )
 
 from unet_inference_client import history, metrics, server, slicer_view, theme
-from unet_inference_client.backend import Backend, MonaiLabelBackend
+from unet_inference_client.backend import Backend, MonaiLabelBackend, ServerSnapshot
 from unet_inference_client.compare_tab import CompareTab, format_dice, format_volume
 from unet_inference_client.config import Settings
+
+CHECKING = "checking..."
 
 
 def format_duration(seconds: float) -> str:
@@ -42,10 +44,32 @@ def format_duration(seconds: float) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
+def describe_snapshot(snapshot: ServerSnapshot) -> str:
+    if not snapshot.is_up:
+        return ""
+    checkpoint = f"Checkpoint epoch {snapshot.epoch}, Dice {snapshot.dice}"
+    if snapshot.epoch == "unknown":
+        checkpoint = "No training stats"
+    return f"{checkpoint}  ·  {snapshot.total_images} cases, {snapshot.labeled_images} with labels"
+
+
 def server_problem_hint(message: str) -> str:
+    if message == CHECKING:
+        return "Checking the server..."
     if message.startswith("unreachable"):
         return "Server unreachable. Check the Server URL in Settings, or start the server on the Server tab."
     return f"Server {message}. Check the inference model in Settings."
+
+
+class StatusWorker(QObject):
+    finished = Signal(object)
+
+    def __init__(self, backend: MonaiLabelBackend):
+        super().__init__()
+        self.backend = backend
+
+    def run(self) -> None:
+        self.finished.emit(self.backend.snapshot())
 
 
 class BatchWorker(QObject):
@@ -112,12 +136,14 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.reader_thread = None
         self.reader = None
+        self.status_thread = None
+        self.status_worker = None
         self.batch_started_at = None
         self.case_started_at = None
         self.stored_results = []
         self.inference_busy = False
         self.server_up = False
-        self.server_message = None
+        self.server_message = CHECKING
 
         self.timer = QTimer(self)
         self.timer.setInterval(1000)
@@ -126,13 +152,17 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("U-Net Inference Client")
         self.resize(960, 740)
 
-        self.status_label = QLabel("Server: checking...")
+        self.status_label = QLabel(f"Server: {CHECKING}")
+        self.model_label = QLabel("")
+        self.model_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
         self.refresh_button = QPushButton("Refresh")
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
 
         header = QHBoxLayout()
         header.addWidget(self.status_label)
+        header.addSpacing(16)
+        header.addWidget(self.model_label)
         header.addStretch()
         header.addWidget(self.refresh_button)
 
@@ -493,32 +523,50 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def refresh(self) -> None:
-        is_up, message = self.backend.server_status()
-        self.status_label.setText(f"Server: {message}")
-        color = theme.GREEN if is_up else theme.RED
-        self.status_label.setStyleSheet(f"color: {color};")
-        if message != self.server_message:
-            self.append(f"Server: {message}")
-        self.server_up, self.server_message = is_up, message
+        if self.status_thread is not None:
+            return
+        self.status_label.setText(f"Server: {CHECKING}")
+        self.status_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
+        self.refresh_button.setEnabled(False)
+        self.server_up, self.server_message = False, CHECKING
         self._update_run_buttons()
-        if not is_up:
-            self.case_box.clear()
-            self.batch_list.clear()
-            return
-        try:
-            cases = self.backend.list_cases()
-        except Exception as exc:
-            self.append(f"Could not load cases: {exc}")
-            return
+        self.status_thread = QThread()
+        self.status_worker = StatusWorker(self.backend)
+        self.status_worker.moveToThread(self.status_thread)
+        self.status_thread.started.connect(self.status_worker.run)
+        self.status_worker.finished.connect(self.on_snapshot)
+        self.status_worker.finished.connect(self.status_thread.quit)
+        self.status_thread.finished.connect(self._status_thread_done)
+        self.status_thread.start()
+
+    def _status_thread_done(self) -> None:
+        self.status_thread = None
+        self.status_worker = None
+        self.refresh_button.setEnabled(not self.inference_busy)
+
+    def on_snapshot(self, snapshot: ServerSnapshot) -> None:
+        self.status_label.setText(f"Server: {snapshot.message}")
+        color = theme.GREEN if snapshot.is_up else theme.RED
+        self.status_label.setStyleSheet(f"color: {color};")
+        if snapshot.message != self.server_message:
+            self.append(f"Server: {snapshot.message}")
+        self.server_up, self.server_message = snapshot.is_up, snapshot.message
+        self.model_label.setText(describe_snapshot(snapshot))
+        self._update_run_buttons()
         self.case_box.clear()
         self.batch_list.clear()
-        for case in cases:
+        if not snapshot.is_up:
+            return
+        if snapshot.cases_error:
+            self.append(f"Could not load cases: {snapshot.cases_error}")
+            return
+        for case in snapshot.cases:
             suffix = "" if case.has_ground_truth else "  (no ground truth)"
             self.case_box.addItem(f"{case.case_id}{suffix}", case.case_id)
             item = QListWidgetItem(case.case_id)
             item.setCheckState(Qt.CheckState.Unchecked)
             self.batch_list.addItem(item)
-        self.append(f"Loaded {len(cases)} cases.")
+        self.append(f"Loaded {len(snapshot.cases)} cases.")
 
     def reload_results(self) -> None:
         stored = history.scan(self.settings.results_path())
@@ -709,6 +757,9 @@ class MainWindow(QMainWindow):
                 return
         if self.server.running:
             self.server.detach()
+        if self.status_thread is not None:
+            self.status_thread.quit()
+            self.status_thread.wait(5000)
         event.accept()
 
 

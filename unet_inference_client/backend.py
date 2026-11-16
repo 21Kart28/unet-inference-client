@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import gzip
-import json
 import hashlib
+import json
+import re
 import tempfile
 import time
 from dataclasses import dataclass
@@ -23,6 +24,18 @@ NRRD_MAGIC = b"NRRD"
 class Case:
     case_id: str
     has_ground_truth: bool
+
+
+@dataclass(frozen=True)
+class ServerSnapshot:
+    is_up: bool
+    message: str
+    cases: list[Case]
+    cases_error: str = ""
+    total_images: int = 0
+    labeled_images: int = 0
+    epoch: str = "unknown"
+    dice: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -94,24 +107,57 @@ class MonaiLabelBackend(Backend):
 
     def __init__(self, settings: Settings):
         self.settings = settings
+        self._server_checkpoint: tuple[str, str] | None = None
 
     @property
     def server_url(self) -> str:
         return self.settings.server_url.rstrip("/")
 
+    def fetch_info(self) -> dict:
+        response = requests.get(f"{self.server_url}/info/", timeout=5)
+        response.raise_for_status()
+        info = response.json()
+        self._server_checkpoint = _checkpoint_from_train_stats(
+            info.get("train_stats", {}), self.settings.model
+        )
+        return info
+
     def server_status(self) -> tuple[bool, str]:
         try:
-            response = requests.get(f"{self.server_url}/info/", timeout=5)
-            response.raise_for_status()
-            info = response.json()
+            info = self.fetch_info()
         except requests.RequestException as exc:
             return False, f"unreachable ({type(exc).__name__})"
+        return self._status_from_info(info)
+
+    def _status_from_info(self, info: dict) -> tuple[bool, str]:
         models = info.get("models", {})
         if self.settings.model not in models:
             available = ", ".join(models) or "none"
             return False, f"running, but '{self.settings.model}' not loaded (available: {available})"
         device = models[self.settings.model].get("config", {}).get("device", ["?"])[0]
         return True, f"running on {device}"
+
+    def snapshot(self) -> ServerSnapshot:
+        try:
+            info = self.fetch_info()
+        except requests.RequestException as exc:
+            return ServerSnapshot(False, f"unreachable ({type(exc).__name__})", [])
+        is_up, message = self._status_from_info(info)
+        if not is_up:
+            return ServerSnapshot(False, message, [])
+        datastore = info.get("datastore", {})
+        epoch, dice = self._checkpoint_metadata()
+        cases, cases_error = [], ""
+        try:
+            cases = self.list_cases()
+        except (requests.RequestException, ValueError) as exc:
+            cases_error = str(exc)
+        return ServerSnapshot(
+            True, message, cases, cases_error,
+            total_images=datastore.get("total", len(cases)),
+            labeled_images=datastore.get("label_tags", {}).get("final", 0),
+            epoch=epoch, dice=dice,
+        )
 
     def available_models(self) -> list[str]:
         response = requests.get(f"{self.server_url}/info/", timeout=10)
@@ -193,15 +239,43 @@ class MonaiLabelBackend(Backend):
         slicer_binary = self.settings.slicer_path() or slicer_view.find_slicer()
         if slicer_binary is None:
             raise RuntimeError("Couldn't find 3D Slicer. Set the Slicer executable in Settings.")
-        studies_dir = self.settings.studies_path()
-        if studies_dir is None:
-            raise RuntimeError("Studies folder is not set. Configure it in Settings.")
-        image_path = slicer_view.find_source_image(studies_dir, case_id)
-        if image_path is None:
-            raise RuntimeError(f"No source image for {case_id} in {studies_dir}")
+        image_path = self._source_image(case_id)
         slicer_view.launch(slicer_binary, image_path, prediction_path, case_id)
 
+    def _source_image(self, case_id: str) -> Path:
+        studies_dir = self.settings.studies_path()
+        if studies_dir is not None:
+            local = slicer_view.find_source_image(studies_dir, case_id)
+            if local is not None:
+                return local
+        cached = slicer_view.find_source_image(self.image_cache_dir(), case_id)
+        if cached is not None:
+            return cached
+        try:
+            return self.download_image(case_id)
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                f"No source image for {case_id}: none in the studies folder and the server "
+                f"download failed ({type(exc).__name__}). Set the Studies folder in Settings."
+            ) from exc
+
+    def image_cache_dir(self) -> Path:
+        return self.settings.results_path() / "_images"
+
+    def download_image(self, case_id: str) -> Path:
+        response = requests.get(
+            f"{self.server_url}/datastore/image", params={"image": case_id}, timeout=600
+        )
+        response.raise_for_status()
+        extension = _extension_from_disposition(response.headers.get("Content-Disposition", ""))
+        target = self.image_cache_dir() / f"{case_id}{extension}"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(response.content)
+        return target
+
     def _checkpoint_metadata(self) -> tuple[str, str]:
+        if self._server_checkpoint is not None:
+            return self._server_checkpoint
         stats_file = self.settings.train_stats_path()
         if stats_file is None:
             return "unknown", "unknown"
@@ -239,3 +313,28 @@ class MonaiLabelBackend(Backend):
         except OSError:
             # Windows only allows symlinks in Developer Mode or as admin.
             pointer.write_text(f"{output_dir}\n")
+
+
+def _checkpoint_from_train_stats(train_stats: dict, model: str) -> tuple[str, str] | None:
+    """Pick the trainer that matches the inference model; MONAI Label keys both by task name."""
+    stats = train_stats.get(model)
+    if stats is None and len(train_stats) == 1:
+        stats = next(iter(train_stats.values()))
+    if not isinstance(stats, dict):
+        return None
+    evaluation = stats.get("eval", {})
+    try:
+        return str(evaluation["best_metric_epoch"]), f"{evaluation['best_metric']:.4f}"
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _extension_from_disposition(header: str) -> str:
+    match = re.search(r'filename="?([^";]+)"?', header)
+    if not match:
+        return ".nrrd"
+    name = match.group(1)
+    for extension in slicer_view.IMAGE_EXTENSIONS:
+        if name.endswith(extension):
+            return extension
+    return Path(name).suffix or ".nrrd"
