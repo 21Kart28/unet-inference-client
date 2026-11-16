@@ -250,6 +250,9 @@ class CompareTab(QWidget):
             self.value_labels.append((key, formatter, value))
         self.message_label = QLabel("")
         self.message_label.setWordWrap(True)
+        self.message_is_error = False
+        self.label_edit.textChanged.connect(self._clear_error)
+        self.prediction_edit.textChanged.connect(self._clear_error)
 
         box_layout = QVBoxLayout()
         box_layout.setContentsMargins(12, 10, 12, 10)
@@ -500,8 +503,13 @@ class CompareTab(QWidget):
 
     def _set_message(self, text: str, error: bool = False) -> None:
         self.message_label.setText(text)
+        self.message_is_error = error
         color = theme.RED if error else theme.TEXT_DIM
         self.message_label.setStyleSheet(f"color: {color};")
+
+    def _clear_error(self) -> None:
+        if self.message_is_error:
+            self._set_message("")
 
     def _fill_table(self) -> None:
         rows = metrics_rows(self.results)

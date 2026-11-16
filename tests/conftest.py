@@ -1,8 +1,18 @@
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 import pytest
+from PySide6.QtWidgets import QApplication
 
 from mock_server import MockMonaiLabel
 from unet_inference_client.backend import MonaiLabelBackend
 from unet_inference_client.config import Settings
+
+
+@pytest.fixture(scope="session")
+def qt_app():
+    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture

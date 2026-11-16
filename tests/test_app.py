@@ -1,7 +1,3 @@
-import os
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
 import pytest
 from PySide6.QtCore import QDeadlineTimer, QEventLoop
 from PySide6.QtWidgets import QApplication
@@ -9,11 +5,6 @@ from PySide6.QtWidgets import QApplication
 from unet_inference_client import app as app_module
 from unet_inference_client.app import MainWindow, describe_snapshot, server_problem_hint
 from unet_inference_client.backend import ServerSnapshot
-
-
-@pytest.fixture(scope="session")
-def qt_app():
-    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture

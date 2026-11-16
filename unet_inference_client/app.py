@@ -227,10 +227,12 @@ class MainWindow(QMainWindow):
         layout.addLayout(bottom)
 
         strip = QFrame()
+        strip.setObjectName("statusStrip")
         strip.setLayout(layout)
         strip.setStyleSheet(
-            f"QFrame {{ background-color: {theme.SURFACE};"
+            f"#statusStrip {{ background-color: {theme.SURFACE};"
             f" border: 1px solid {theme.BORDER}; border-radius: 6px; }}"
+            " #statusStrip QLabel { background-color: transparent; }"
         )
         return strip
 
