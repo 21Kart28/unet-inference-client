@@ -67,3 +67,22 @@ def test_describe_snapshot_without_training_stats():
 
 def test_server_problem_hint_while_checking():
     assert server_problem_hint(app_module.CHECKING) == "Checking the server..."
+
+
+def test_first_run_opens_on_the_setup_tab(qt_app, settings):
+    window = MainWindow(settings, first_run=True)
+    try:
+        assert window.tabs.tabText(window.tabs.currentIndex()) == "Setup"
+        wait_until(lambda: window.setup_tab.worker_thread is None and window.status_thread is None)
+        names = [check.name for check in window.setup_tab.checks]
+        assert names == ["MONAI Label server", "Inference model", "3D Slicer", "Results folder", "Studies folder"]
+        assert window.setup_tab.grid.count() == 15
+        assert window.setup_tab.headline.text() == "Fix the red items before running inference."
+        assert "Setup check: fix Studies folder." in window.log.toPlainText()
+    finally:
+        window.close()
+
+
+def test_later_runs_open_on_the_run_tab(window):
+    assert window.tabs.tabText(window.tabs.currentIndex()) == "Run"
+    wait_until(lambda: window.setup_tab.worker_thread is None and window.status_thread is None)

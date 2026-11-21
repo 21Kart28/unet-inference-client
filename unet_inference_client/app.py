@@ -34,7 +34,8 @@ from PySide6.QtWidgets import (
 from unet_inference_client import history, metrics, server, slicer_view, theme
 from unet_inference_client.backend import Backend, MonaiLabelBackend, ServerSnapshot
 from unet_inference_client.compare_tab import CompareTab, format_dice, format_volume
-from unet_inference_client.config import Settings
+from unet_inference_client.config import CONFIG_FILE, Settings
+from unet_inference_client.setup_tab import SetupTab
 
 CHECKING = "checking..."
 
@@ -127,7 +128,7 @@ class ServerReader(QObject):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, first_run: bool = False):
         super().__init__()
         self.settings = settings
         self.backend = MonaiLabelBackend(settings)
@@ -167,6 +168,8 @@ class MainWindow(QMainWindow):
         header.addWidget(self.refresh_button)
 
         self.tabs = QTabWidget()
+        self.setup_tab = SetupTab(settings, self.backend, self.append)
+        self.tabs.addTab(self.setup_tab, "Setup")
         self.tabs.addTab(self._build_run_tab(), "Run")
         self.tabs.addTab(self._build_batch_tab(), "Batch")
         self.tabs.addTab(self._build_results_tab(), "Results")
@@ -194,6 +197,8 @@ class MainWindow(QMainWindow):
         self.refresh_button.clicked.connect(self.refresh)
         self.refresh()
         self.reload_results()
+        self.setup_tab.run()
+        self.tabs.setCurrentIndex(0 if first_run else 1)
 
     def _build_status_strip(self) -> QWidget:
         self.activity_label = QLabel("Idle")
@@ -447,6 +452,7 @@ class MainWindow(QMainWindow):
         self.append("Settings saved.")
         self.refresh()
         self.reload_results()
+        self.setup_tab.run()
 
     def save_server_settings(self) -> None:
         self.settings.server_python = self.server_python_edit.text().strip()
@@ -762,13 +768,14 @@ class MainWindow(QMainWindow):
         if self.status_thread is not None:
             self.status_thread.quit()
             self.status_thread.wait(5000)
+        self.setup_tab.close_thread()
         event.accept()
 
 
 def main() -> None:
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.STYLESHEET)
-    window = MainWindow(Settings.load())
+    window = MainWindow(Settings.load(), first_run=not CONFIG_FILE.exists())
     window.show()
     sys.exit(app.exec())
 
