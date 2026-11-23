@@ -1,62 +1,89 @@
 # U-Net Inference Client
 
-A desktop tool for running 3D deep learning inference on volumetric medical scans.
+A desktop tool for running 3D deep learning segmentation on CT scans, batching it across a
+dataset, scoring the results against ground truth, and reviewing them in 3D Slicer.
+
+![Results tab: one row per prediction with model, checkpoint epoch, validation Dice and Dice against ground truth](docs/results.png)
 
 Built during an ML research internship at Baylor College of Medicine / Texas Children's
 Hospital. Running inference there meant activating a virtual environment, starting a
 server from the terminal, and chaining shell scripts by hand for every scan. This replaces
-that with a GUI: start the server, pick a scan, run the network on GPU, batch across a
-dataset, and review predictions in 3D Slicer.
+that with a GUI that talks to a [MONAI Label](https://github.com/Project-MONAI/MONAILabel)
+server, on the same machine or on a GPU workstation across the lab.
 
-**Stack:** Python, PySide6/Qt, PyTorch, MONAI Label, REST, CUDA, 3D Slicer
+**Stack:** Python, PySide6/Qt, MONAI Label, REST, SimpleITK, 3D Slicer
+
+## Quickstart
+
+1. Install. Python 3.10 or newer.
+
+       git clone https://github.com/21Kart28/unet-inference-client.git
+       cd unet-inference-client
+       python -m venv .venv
+       .venv\Scripts\activate        # Windows
+       source .venv/bin/activate     # macOS / Linux
+       pip install -e .
+
+2. Start it.
+
+       unet-client
+
+3. The first launch opens on the **Setup** tab. Fix anything red: it tells you what is wrong
+   and which setting to change. Amber items are optional.
+
+4. Point **Settings** at your MONAI Label server URL and model name, then pick a case on the
+   **Run** tab and press Run inference, or tick several on **Batch**.
+
+5. Select a result and press **View in Slicer**, or open **Compare** to score it against the
+   ground-truth label.
+
+To try it without a MONAI Label server, run the fake one that ships with the tests in a
+second terminal. The app then works end to end with a 4x4x4 toy prediction:
+
+    python tests/mock_server.py --port 8000
+
+![Setup tab: five checks, each green, amber or red with a fix hint](docs/setup.png)
 
 ## What it does
 
-- **Server control.** Start and stop a MONAI Label server from the app, and switch which
-  dataset it serves without touching a terminal.
-- **Single inference.** Pick a case, run the model, watch a live elapsed timer. The UI
-  stays responsive because the job runs on a worker thread.
-- **Batch inference.** Queue any subset of a dataset, with per-case and total timers,
-  progress, cancel, and skip-if-already-done.
-- **Result provenance.** Every prediction is written alongside a manifest recording the
-  model, checkpoint epoch, validation Dice, SHA-256 of the weights, and timestamp.
-- **Run history.** Every attempt, including failures, is appended to a CSV you can export.
-- **3D Slicer viewing.** Opens any saved prediction over its source scan with surface
-  smoothing disabled, so you see the model's actual voxel output rather than a
-  cosmetically smoothed surface.
+- **Setup check.** Server reachable, model loaded, 3D Slicer found, results folder writable,
+  studies folder present. Each with a one-line fix. Runs again whenever settings change.
+- **Single and batch inference.** Pick one case or any subset of the dataset. Live per-case
+  and total timers, progress, cancel, and skip-if-already-done. Jobs run on a worker thread
+  so the window never freezes.
+- **Metrics.** Dice, volume in mm³, volume difference, and 95th-percentile Hausdorff distance
+  between a prediction and its ground-truth label, per case or for every result at once.
+  Exported to CSV alongside the run history.
+- **Result provenance.** Every prediction is saved with a manifest recording the model,
+  checkpoint epoch and validation Dice (read from the server's training stats), SHA-256 of
+  the weights, and timestamp. The output folder name carries the epoch and Dice too.
+- **Remote servers.** The server check runs off the main thread, and when the scans live on
+  the workstation the client downloads a case's source image on demand for Slicer review.
+- **3D Slicer viewing.** Opens any prediction over its source scan with surface smoothing
+  disabled, so you see the model's actual voxel output rather than a cosmetically smoothed
+  surface. Finds the newest Slicer install on its own.
+- **Server control.** Start and stop a local MONAI Label server from the app, on Windows or
+  Linux, and switch which dataset it serves.
 
 ## Requirements
 
 - Python 3.10 or newer
-- A MONAI Label installation with a trained segmentation model:
-  https://github.com/Project-MONAI/MONAILabel
+- A MONAI Label server with a trained segmentation model, local or remote
 - 3D Slicer for viewing, optional: https://www.slicer.org/
-- A CUDA GPU for the server
 
-## Install
+## Development
 
-    git clone https://github.com/21Kart28/unet-inference-client.git
-    cd unet-inference-client
-    python3 -m venv .venv
-    source .venv/bin/activate
-    pip install -e .
+    pip install -e ".[dev]"
+    pytest
 
-For development, `pip install -e ".[dev]"` adds pytest. Run the tests with `pytest`.
-
-## Run
-
-    unet-client
-
-`python -m unet_inference_client` does the same.
-
-On first launch, open the Settings and Server tabs and point the app at your MONAI Label
-installation, dataset, and results folder. Settings persist to
-~/.config/unet-inference-client/settings.json
+The suite runs against the mock server, so it needs no GPU, model weights or scan data.
+It covers the REST client, metrics, Windows and Linux process control, the Slicer launcher,
+and the Qt window itself (offscreen).
 
 ## Dataset layout
 
 The MONAI Label datastore expects one volume file per case at the top level of the
-studies folder:
+studies folder, with ground-truth labels under `labels/final`:
 
     studies/
       case_001.nrrd
@@ -67,6 +94,8 @@ studies folder:
           case_002.nrrd
 
 DICOM series folders are not read directly. Convert them to NRRD or NIfTI first.
+
+Settings persist to `~/.config/unet-inference-client/settings.json`.
 
 ## Notes
 
