@@ -1,5 +1,7 @@
 # U-Net Inference Client
 
+[![tests](https://github.com/21Kart28/unet-inference-client/actions/workflows/tests.yml/badge.svg)](https://github.com/21Kart28/unet-inference-client/actions/workflows/tests.yml)
+
 A desktop tool for running 3D deep learning segmentation on CT scans, batching it across a
 dataset, scoring the results against ground truth, and reviewing them in 3D Slicer.
 
