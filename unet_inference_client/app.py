@@ -651,7 +651,9 @@ class MainWindow(QMainWindow):
         self._start_worker(self._plan(self.remaining_cases))
 
     def _plan(self, cases: list[str]) -> batch.BatchPlan:
-        done = {case for case in cases if self.backend.has_result(case)}
+        done = batch.completed_cases(
+            history.scan(self.settings.results_path()), self.settings.model, self.settings.server_url
+        )
         planned = batch.plan(cases, done, self.skip_existing_box.isChecked())
         for case_id in planned.skipped:
             self.append(f"Skipped {case_id} — result already exists.")

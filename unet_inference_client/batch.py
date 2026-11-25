@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from PySide6.QtCore import QObject, Signal
 
 from unet_inference_client.backend import Backend
+from unet_inference_client.history import StoredResult
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,12 @@ class BatchSummary:
     failed: int
     cancelled: bool
     remaining: list[str]
+
+
+def completed_cases(results: list[StoredResult], model: str, server: str) -> set[str]:
+    """Cases with a stored prediction from this model on this server, whatever the checkpoint."""
+    server = server.rstrip("/")
+    return {r.case_id for r in results if r.model == model and r.server.rstrip("/") == server}
 
 
 def plan(case_ids: list[str], done: set[str], skip_existing: bool) -> BatchPlan:

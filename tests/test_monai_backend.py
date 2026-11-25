@@ -52,6 +52,7 @@ def test_run_inference_saves_prediction_manifest_and_history(backend, settings, 
     assert manifest["checkpoint_epoch"] == "150"
     assert manifest["checkpoint_dice"] == "0.9123"
     assert manifest["server"] == mock_server.url
+    assert history.scan(settings.results_path())[0].server == mock_server.url
 
     with history.log_path(settings.results_path()).open() as handle:
         rows = list(csv.DictReader(handle))

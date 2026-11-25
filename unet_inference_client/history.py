@@ -21,6 +21,7 @@ class StoredResult:
     epoch: str
     dice: str
     timestamp: str
+    server: str = ""
 
 
 def scan(results_dir: Path) -> list[StoredResult]:
@@ -61,6 +62,7 @@ def _read_metadata(output_dir: Path, prediction: Path) -> StoredResult:
         epoch=str(data.get("checkpoint_epoch", "?")),
         dice=str(data.get("checkpoint_dice", "?")),
         timestamp=data.get("timestamp", modified),
+        server=data.get("server", ""),
     )
 
 

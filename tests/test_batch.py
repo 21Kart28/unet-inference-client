@@ -2,6 +2,7 @@ from pathlib import Path
 
 from unet_inference_client import batch
 from unet_inference_client.backend import Backend, InferenceResult
+from unet_inference_client.history import StoredResult
 
 
 class RecordingBackend(Backend):
@@ -19,6 +20,10 @@ class RecordingBackend(Backend):
         return InferenceResult(case_id, Path("."), Path("pred.nrrd"), 1.5, "1", "0.9")
 
 
+def stored(case_id, model="deepedit_seg", server="http://host:8000"):
+    return StoredResult(case_id, Path(case_id), Path("pred.nrrd"), model, "1", "0.9", "", server)
+
+
 def run_worker(worker):
     events = []
     worker.progress.connect(lambda i, n, c: events.append(("start", c)))
@@ -34,6 +39,16 @@ def test_plan_skips_cases_already_done():
     result = batch.plan(["A", "B", "C"], {"B"}, skip_existing=True)
     assert result.to_run == ["A", "C"]
     assert result.skipped == ["B"]
+
+
+def test_completed_cases_match_model_and_server():
+    results = [
+        stored("A"),
+        stored("B", model="other_model"),
+        stored("C", server="http://elsewhere:8000"),
+        stored("D", server="http://host:8000/"),
+    ]
+    assert batch.completed_cases(results, "deepedit_seg", "http://host:8000/") == {"A", "D"}
 
 
 def test_plan_runs_everything_when_not_skipping():
