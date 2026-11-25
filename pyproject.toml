@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10", "types-requests"]
 
 [project.scripts]
 unet-client = "unet_inference_client.app:main"
@@ -31,6 +31,26 @@ packages = ["unet_inference_client"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["unet_inference_client"]
+ignore_missing_imports = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[[tool.mypy.overrides]]
+# The widget modules use PySide6's short enum names (QHeaderView.Stretch), which the stubs
+# reject, and keep worker and thread attributes that start out as None. Checked loosely for now.
+module = [
+    "unet_inference_client.app",
+    "unet_inference_client.class_table",
+    "unet_inference_client.compare_tab",
+    "unet_inference_client.model_compare_tab",
+    "unet_inference_client.setup_tab",
+]
+ignore_errors = true
 
 [tool.ruff]
 line-length = 120

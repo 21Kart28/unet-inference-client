@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -181,11 +182,11 @@ def _voxel_volume(image: sitk.Image) -> float:
     return float(np.prod(image.GetSpacing()))
 
 
-def _mismatch(name: str, pred_value, gt_value) -> str:
+def _mismatch(name: str, pred_value: Iterable[float], gt_value: Iterable[float]) -> str:
     return f"{name} differs: prediction {_format(pred_value)}, ground truth {_format(gt_value)}."
 
 
-def _format(values) -> str:
+def _format(values: Iterable[float]) -> str:
     return "(" + ", ".join(f"{value:.10g}" for value in values) + ")"
 
 

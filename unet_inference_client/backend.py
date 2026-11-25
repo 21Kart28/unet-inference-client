@@ -116,7 +116,7 @@ class MonaiLabelBackend(Backend):
     def fetch_info(self) -> dict:
         response = requests.get(f"{self.server_url}/info/", timeout=5)
         response.raise_for_status()
-        info = response.json()
+        info: dict = response.json()
         self._server_checkpoint = _checkpoint_from_train_stats(
             info.get("train_stats", {}), self.settings.model
         )
@@ -285,7 +285,8 @@ class MonaiLabelBackend(Backend):
         except (OSError, KeyError, ValueError, TypeError):
             return "unknown", "unknown"
 
-    def _write_manifest(self, output_dir, case_id, extension, epoch, dice, elapsed) -> None:
+    def _write_manifest(self, output_dir: Path, case_id: str, extension: str,
+                        epoch: str, dice: str, elapsed: float) -> None:
         manifest = {
             "case_id": case_id,
             "model": self.settings.model,

@@ -69,12 +69,13 @@ def summarize(rows: list[DeltaRow]) -> DeltaSummary:
 
 
 def describe(summary: DeltaSummary, model_a: str, model_b: str) -> str:
-    if summary.paired == 0:
+    mean = summary.mean_delta
+    if mean is None:
         return (f"No case has saved Dice for both {model_a} and {model_b}."
                 " Run Compare all results for each model first.")
-    direction = "better" if summary.mean_delta > 0 else "worse" if summary.mean_delta < 0 else "equal"
+    direction = "better" if mean > 0 else "worse" if mean < 0 else "equal"
     return (f"{summary.paired} paired case(s): {model_b} is {direction} on average"
-            f" ({summary.mean_delta:+.4f} Dice), better on {summary.better}, worse on {summary.worse}.")
+            f" ({mean:+.4f} Dice), better on {summary.better}, worse on {summary.worse}.")
 
 
 def write_delta_csv(path: Path, rows: list[DeltaRow], model_a: str, model_b: str) -> None:

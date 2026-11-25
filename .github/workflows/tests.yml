@@ -13,8 +13,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install ruff
+      - run: pip install -e ".[dev]"
       - run: ruff check .
+      - run: mypy
 
   pytest:
     strategy:

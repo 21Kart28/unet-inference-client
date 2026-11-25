@@ -59,9 +59,9 @@ def find_external(port: int) -> list[int]:
 class ServerProcess:
     """Owns a server subprocess and exposes its output line by line."""
 
-    def __init__(self):
-        self.process = None
-        self.command = []
+    def __init__(self) -> None:
+        self.process: subprocess.Popen[str] | None = None
+        self.command: list[str] = []
 
     @property
     def running(self) -> bool:
@@ -104,33 +104,34 @@ class ServerProcess:
         return line.rstrip() if line else None
 
     def stop(self, timeout: float = 15.0) -> None:
-        if not self.running:
-            self.process = None
+        process, self.process = self.process, None
+        if process is None or process.poll() is not None:
             return
         try:
-            self._ask_to_stop()
-            self.process.wait(timeout=timeout)
+            _ask_to_stop(process)
+            process.wait(timeout=timeout)
         except (OSError, subprocess.TimeoutExpired):
-            self._kill()
-        self.process = None
-
-    def _ask_to_stop(self) -> None:
-        if sys.platform == "win32":
-            # Windows has no SIGTERM for console programs; uvicorn shuts down cleanly on Ctrl+Break.
-            self.process.send_signal(signal.CTRL_BREAK_EVENT)
-        else:
-            os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
-
-    def _kill(self) -> None:
-        if self.process.poll() is not None:
-            return
-        if sys.platform == "win32":
-            # /T also ends any worker processes the server started.
-            subprocess.run(["taskkill", "/PID", str(self.process.pid), "/T", "/F"],
-                           capture_output=True, timeout=10)
-        else:
-            os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+            _kill(process)
 
     def detach(self) -> None:
         """Forget the process without killing it, so it survives app exit."""
         self.process = None
+
+
+def _ask_to_stop(process: subprocess.Popen[str]) -> None:
+    if sys.platform == "win32":
+        # Windows has no SIGTERM for console programs; uvicorn shuts down cleanly on Ctrl+Break.
+        process.send_signal(signal.CTRL_BREAK_EVENT)
+    else:
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+
+
+def _kill(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    if sys.platform == "win32":
+        # /T also ends any worker processes the server started.
+        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                       capture_output=True, timeout=10)
+    else:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
