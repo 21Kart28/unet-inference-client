@@ -35,6 +35,7 @@ from unet_inference_client import batch, history, metrics, server, slicer_view, 
 from unet_inference_client.backend import MonaiLabelBackend, ServerSnapshot
 from unet_inference_client.compare_tab import CompareTab, format_dice, format_volume
 from unet_inference_client.config import CONFIG_FILE, Settings
+from unet_inference_client.model_compare_tab import ModelCompareTab
 from unet_inference_client.setup_tab import SetupTab
 
 CHECKING = "checking..."
@@ -139,6 +140,8 @@ class MainWindow(QMainWindow):
         self.compare_tab = CompareTab(settings, self.append)
         self.compare_tab.metrics_saved.connect(self.reload_results)
         self.tabs.addTab(self.compare_tab, "Compare")
+        self.model_compare_tab = ModelCompareTab(settings, self.append)
+        self.tabs.addTab(self.model_compare_tab, "Models")
         self.tabs.addTab(self._build_server_tab(), "Server")
         self.tabs.addTab(self._build_settings_tab(), "Settings")
 
@@ -560,6 +563,7 @@ class MainWindow(QMainWindow):
                 self.results_table.setItem(row, column, QTableWidgetItem(str(value)))
         self.results_count_label.setText(f"{len(stored)} result(s) in {self.settings.results_dir}")
         self.compare_tab.set_results(stored)
+        self.model_compare_tab.set_results(stored)
 
     def _selected_result(self) -> history.StoredResult | None:
         row = self.results_table.currentRow()

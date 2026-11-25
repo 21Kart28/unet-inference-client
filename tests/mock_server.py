@@ -110,9 +110,11 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--cases", type=int, default=5, help="number of fake cases")
     parser.add_argument("--gzip", action="store_true", help="gzip the prediction, as the real server does")
+    parser.add_argument("--models", default="deepedit_seg",
+                        help="comma-separated model names to serve, for trying the Models tab")
     args = parser.parse_args()
     cases = {f"CASE_{n:03d}": n % 3 != 0 for n in range(1, args.cases + 1)}
-    mock = MockMonaiLabel(cases=cases, gzip_output=args.gzip)
+    mock = MockMonaiLabel(models=args.models.split(","), cases=cases, gzip_output=args.gzip)
     print(f"Mock MONAI Label server on {mock.start(args.port)}  (Ctrl+C to stop)")
     try:
         threading.Event().wait()

@@ -51,11 +51,14 @@ second terminal. The app then works end to end with a 4x4x4 toy prediction:
 - **Setup check.** Server reachable, model loaded, 3D Slicer found, results folder writable,
   studies folder present. Each with a one-line fix. Runs again whenever settings change.
 - **Single and batch inference.** Pick one case or any subset of the dataset. Live per-case
-  and total timers, progress, cancel, and skip-if-already-done. Jobs run on a worker thread
+  and total timers, progress, cancel with resume, and skip-if-already-done. Jobs run on a worker thread
   so the window never freezes.
 - **Metrics.** Dice, volume in mm³, volume difference, and 95th-percentile Hausdorff distance
   between a prediction and its ground-truth label, per case or for every result at once.
   Exported to CSV alongside the run history.
+- **Model comparison.** The Models tab lines up two models that were run on the same cases
+  and shows the Dice delta per case, with a mean and a better/worse count. Try it with
+  `python tests/mock_server.py --models deepedit_seg,unet_v2`.
 - **Result provenance.** Every prediction is saved with a manifest recording the model,
   checkpoint epoch and validation Dice (read from the server's training stats), SHA-256 of
   the weights, and timestamp. The output folder name carries the epoch and Dice too.
