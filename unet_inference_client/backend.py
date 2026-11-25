@@ -178,7 +178,7 @@ class MonaiLabelBackend(Backend):
 
     def output_dir_for(self, case_id: str) -> Path:
         epoch, dice = self._checkpoint_metadata()
-        name = f"{case_id}_{self.settings.resolution}_ep{epoch}_dice{dice}"
+        name = f"{case_id}_{self.settings.model}_{self.settings.resolution}_ep{epoch}_dice{dice}"
         return self.settings.results_path() / name
 
     def has_result(self, case_id: str) -> bool:

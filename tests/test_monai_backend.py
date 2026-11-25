@@ -42,7 +42,7 @@ def test_run_inference_saves_prediction_manifest_and_history(backend, settings, 
 
     assert mock_server.infer_calls == [("deepedit_seg", "CASE_001")]
     assert result.prediction_path.name == "pred.nrrd"
-    assert result.output_dir.name == "CASE_001_192x192x224_ep150_dice0.9123"
+    assert result.output_dir.name == "CASE_001_deepedit_seg_192x192x224_ep150_dice0.9123"
     assert sitk.ReadImage(str(result.prediction_path)).GetSize() == (4, 4, 4)
     assert backend.has_result("CASE_001")
 
@@ -108,7 +108,7 @@ def test_checkpoint_unknown_without_train_stats(backend, mock_server):
     mock_server.train_stats = {}
     snapshot = backend.snapshot()
     assert (snapshot.epoch, snapshot.dice) == ("unknown", "unknown")
-    assert backend.output_dir_for("CASE_001").name == "CASE_001_192x192x224_epunknown_diceunknown"
+    assert backend.output_dir_for("CASE_001").name == "CASE_001_deepedit_seg_192x192x224_epunknown_diceunknown"
 
 
 def test_checkpoint_uses_single_trainer_with_other_name(backend, mock_server):
@@ -126,7 +126,7 @@ def test_checkpoint_falls_back_to_local_train_stats(backend, settings, mock_serv
     )
     settings.model_dir = str(model_dir)
     assert backend.snapshot().epoch == "42"
-    assert backend.output_dir_for("CASE_001").name == "CASE_001_192x192x224_ep42_dice0.8000"
+    assert backend.output_dir_for("CASE_001").name == "CASE_001_deepedit_seg_192x192x224_ep42_dice0.8000"
 
 
 def test_download_image_caches_under_results(backend, settings):
