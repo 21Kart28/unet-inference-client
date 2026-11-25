@@ -86,3 +86,20 @@ def test_first_run_opens_on_the_setup_tab(qt_app, settings):
 def test_later_runs_open_on_the_run_tab(window):
     assert window.tabs.tabText(window.tabs.currentIndex()) == "Run"
     wait_until(lambda: window.setup_tab.worker_thread is None and window.status_thread is None)
+
+
+def test_batch_runs_checked_cases_and_skips_them_next_time(window):
+    wait_until(lambda: window.status_thread is None)
+    window._set_all_checked(True)
+    window.start_batch()
+    assert not window.batch_run_button.isEnabled()
+    wait_until(lambda: not window.inference_busy)
+
+    log = window.log.toPlainText()
+    assert "Finished in" in log and "3 completed, 0 skipped, 0 failed" in log
+    assert window.results_table.rowCount() == 3
+    assert not window.batch_resume_button.isEnabled()
+
+    window.start_batch()
+    wait_until(lambda: not window.inference_busy)
+    assert "0 completed, 3 skipped, 0 failed" in window.log.toPlainText()

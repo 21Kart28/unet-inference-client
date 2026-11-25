@@ -31,8 +31,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from unet_inference_client import history, metrics, server, slicer_view, theme
-from unet_inference_client.backend import Backend, MonaiLabelBackend, ServerSnapshot
+from unet_inference_client import batch, history, metrics, server, slicer_view, theme
+from unet_inference_client.backend import MonaiLabelBackend, ServerSnapshot
 from unet_inference_client.compare_tab import CompareTab, format_dice, format_volume
 from unet_inference_client.config import CONFIG_FILE, Settings
 from unet_inference_client.setup_tab import SetupTab
@@ -71,43 +71,6 @@ class StatusWorker(QObject):
 
     def run(self) -> None:
         self.finished.emit(self.backend.snapshot())
-
-
-class BatchWorker(QObject):
-    progress = Signal(int, int, str)
-    case_done = Signal(str, float)
-    case_failed = Signal(str, str)
-    finished = Signal(int, int, int)
-
-    def __init__(self, backend: Backend, case_ids: list[str], skip_existing: bool):
-        super().__init__()
-        self.backend = backend
-        self.case_ids = case_ids
-        self.skip_existing = skip_existing
-        self.cancelled = False
-
-    def cancel(self) -> None:
-        self.cancelled = True
-
-    def run(self) -> None:
-        completed = skipped = failed = 0
-        total = len(self.case_ids)
-        for index, case_id in enumerate(self.case_ids, start=1):
-            if self.cancelled:
-                break
-            if self.skip_existing and self.backend.has_result(case_id):
-                skipped += 1
-                self.progress.emit(index, total, f"{case_id} (skipped)")
-                continue
-            self.progress.emit(index, total, case_id)
-            try:
-                result = self.backend.run_inference(case_id)
-                completed += 1
-                self.case_done.emit(case_id, result.elapsed_seconds)
-            except Exception as exc:
-                failed += 1
-                self.case_failed.emit(case_id, str(exc))
-        self.finished.emit(completed, skipped, failed)
 
 
 class ServerReader(QObject):
@@ -274,12 +237,17 @@ class MainWindow(QMainWindow):
         self.select_all_button = QPushButton("Select all")
         self.select_none_button = QPushButton("Select none")
         self.batch_run_button = QPushButton("Run batch")
+        self.batch_resume_button = QPushButton("Resume")
+        self.batch_resume_button.setEnabled(False)
+        self.batch_resume_button.setToolTip("Continue a cancelled batch from where it stopped.")
         self.batch_cancel_button = QPushButton("Cancel")
         self.batch_cancel_button.setEnabled(False)
+        self.remaining_cases = []
 
         self.select_all_button.clicked.connect(lambda: self._set_all_checked(True))
         self.select_none_button.clicked.connect(lambda: self._set_all_checked(False))
         self.batch_run_button.clicked.connect(self.start_batch)
+        self.batch_resume_button.clicked.connect(self.resume_batch)
         self.batch_cancel_button.clicked.connect(self.cancel_batch)
 
         buttons = QHBoxLayout()
@@ -287,6 +255,7 @@ class MainWindow(QMainWindow):
         buttons.addWidget(self.select_none_button)
         buttons.addStretch()
         buttons.addWidget(self.batch_run_button)
+        buttons.addWidget(self.batch_resume_button)
         buttons.addWidget(self.batch_cancel_button)
 
         layout = QVBoxLayout()
@@ -657,13 +626,14 @@ class MainWindow(QMainWindow):
         for button in (self.run_button, self.batch_run_button):
             button.setEnabled(not reason)
             button.setToolTip(reason)
+        self.batch_resume_button.setEnabled(not reason and bool(self.remaining_cases))
 
     def start_single(self) -> None:
         case_id = self.case_box.currentData()
         if not case_id:
             self.append("No case selected.")
             return
-        self._start_worker([case_id], skip_existing=False)
+        self._start_worker(batch.BatchPlan([case_id]))
 
     def start_batch(self) -> None:
         cases = self._checked_cases()
@@ -671,19 +641,34 @@ class MainWindow(QMainWindow):
             self.append("No cases checked.")
             return
         self.append(f"Batch started: {len(cases)} case(s) queued.")
-        self._start_worker(cases, skip_existing=self.skip_existing_box.isChecked())
+        self._start_worker(self._plan(cases))
 
-    def _start_worker(self, case_ids: list[str], skip_existing: bool) -> None:
+    def resume_batch(self) -> None:
+        if not self.remaining_cases:
+            self.append("Nothing to resume.")
+            return
+        self.append(f"Resuming batch: {len(self.remaining_cases)} case(s) left.")
+        self._start_worker(self._plan(self.remaining_cases))
+
+    def _plan(self, cases: list[str]) -> batch.BatchPlan:
+        done = {case for case in cases if self.backend.has_result(case)}
+        planned = batch.plan(cases, done, self.skip_existing_box.isChecked())
+        for case_id in planned.skipped:
+            self.append(f"Skipped {case_id} — result already exists.")
+        return planned
+
+    def _start_worker(self, planned: batch.BatchPlan) -> None:
+        self.remaining_cases = []
         self._set_busy(True)
-        self.batch_progress.setMaximum(len(case_ids))
+        self.batch_progress.setMaximum(max(len(planned.to_run), 1))
         self.batch_progress.setValue(0)
-        self.count_label.setText(f"0 / {len(case_ids)}")
+        self.count_label.setText(f"0 / {len(planned.to_run)}")
         self.batch_started_at = time.monotonic()
         self.case_started_at = None
         self.timer.start()
 
         self.thread = QThread()
-        self.worker = BatchWorker(self.backend, case_ids, skip_existing)
+        self.worker = batch.BatchWorker(self.backend, planned)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.progress.connect(self.on_progress)
@@ -710,9 +695,6 @@ class MainWindow(QMainWindow):
     def on_progress(self, index: int, total: int, case_id: str) -> None:
         self.batch_progress.setValue(index)
         self.count_label.setText(f"{index} / {total}")
-        if case_id.endswith("(skipped)"):
-            self.append(f"Skipped {case_id.replace(' (skipped)', '')} — result already exists.")
-            return
         self.case_started_at = time.monotonic()
         self.case_timer_label.setText("00:00")
         self.activity_label.setText(f"Running inference on {case_id}")
@@ -726,7 +708,7 @@ class MainWindow(QMainWindow):
     def on_case_failed(self, case_id: str, message: str) -> None:
         self.append(f"FAILED: {case_id} — {message}")
 
-    def on_all_finished(self, completed: int, skipped: int, failed: int) -> None:
+    def on_all_finished(self, summary: batch.BatchSummary) -> None:
         self.timer.stop()
         self.case_started_at = None
         total_time = format_duration(time.monotonic() - self.batch_started_at)
@@ -736,8 +718,13 @@ class MainWindow(QMainWindow):
         self.activity_label.setText("Idle")
         self.activity_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
         self.append(
-            f"Finished in {total_time} — {completed} completed, {skipped} skipped, {failed} failed."
+            f"{'Cancelled' if summary.cancelled else 'Finished'} in {total_time} — "
+            f"{summary.completed} completed, {summary.skipped} skipped, {summary.failed} failed."
         )
+        self.remaining_cases = summary.remaining
+        if summary.remaining:
+            self.append(f"{len(summary.remaining)} case(s) not run. Press Resume to continue from "
+                        f"{summary.remaining[0]}.")
         self._set_busy(False)
         self.reload_results()
 
