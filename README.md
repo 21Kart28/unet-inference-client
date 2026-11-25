@@ -1,6 +1,9 @@
 # U-Net Inference Client
 
 [![tests](https://github.com/21Kart28/unet-inference-client/actions/workflows/tests.yml/badge.svg)](https://github.com/21Kart28/unet-inference-client/actions/workflows/tests.yml)
+[![coverage](https://codecov.io/gh/21Kart28/unet-inference-client/graph/badge.svg)](https://codecov.io/gh/21Kart28/unet-inference-client)
+[![ruff](https://img.shields.io/badge/lint-ruff-261230)](https://github.com/astral-sh/ruff)
+[![mypy](https://img.shields.io/badge/types-mypy-blue)](https://mypy-lang.org/)
 
 A desktop tool for running 3D deep learning segmentation on CT scans, batching it across a
 dataset, scoring the results against ground truth, and reviewing them in 3D Slicer.
@@ -80,7 +83,7 @@ second terminal. The app then works end to end with a 4x4x4 toy prediction:
 ## Development
 
     pip install -e ".[dev]"
-    pytest
+    pytest --cov
     ruff check .
     mypy
 

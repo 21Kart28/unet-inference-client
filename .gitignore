@@ -33,3 +33,8 @@ settings.json
 .vscode/
 .idea/
 .DS_Store
+
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
