@@ -158,6 +158,44 @@ def test_find_ground_truth(tmp_path):
     assert metrics.find_ground_truth(tmp_path, "CASE_2") is None
 
 
+def test_class_volumes_per_label(write):
+    image = make_mask(boxes=[cube((0, 0, 0), edge=4, value=1), cube((10, 10, 10), edge=2, value=3)],
+                      spacing=(0.5, 0.5, 2.0))
+    assert metrics.class_volumes(write("labels", image)) == {1: 64 * 0.5, 3: 8 * 0.5}
+
+
+def test_compare_classes_reports_each_label(write):
+    pred = make_mask(boxes=[cube((0, 0, 0), edge=4, value=1), cube((10, 10, 10), edge=4, value=2)])
+    gt = make_mask(boxes=[cube((0, 0, 0), edge=4, value=1), cube((12, 10, 10), edge=4, value=2),
+                          cube((20, 20, 20), edge=2, value=5)])
+    rows = metrics.compare_classes(write("pred", pred), write("gt", gt))
+
+    assert [row.label for row in rows] == [1, 2, 5]
+    assert rows[0].dice == 1.0
+    # Label 2 overlaps in a 2 x 4 x 4 block; each cube has 64 voxels.
+    assert rows[1].dice == pytest.approx(2 * 32 / 128)
+    assert (rows[1].pred_volume_mm3, rows[1].gt_volume_mm3) == (64.0, 64.0)
+    assert rows[2].dice == 0.0 and rows[2].pred_volume_mm3 == 0.0 and rows[2].gt_volume_mm3 == 8.0
+
+
+def test_compare_classes_checks_geometry(write):
+    pred = make_mask(boxes=[cube((0, 0, 0))])
+    gt = make_mask(boxes=[cube((0, 0, 0))], spacing=(2.0, 2.0, 2.0))
+    with pytest.raises(GeometryMismatch):
+        metrics.compare_classes(write("pred", pred), write("gt", gt))
+
+
+def test_save_metrics_with_classes(tmp_path):
+    result = metrics.MaskMetrics(0.9, 100.0, 110.0, -9.09, 1.5)
+    classes = [metrics.ClassMetrics(1, 0.95, 60.0, 62.0), metrics.ClassMetrics(2, 0.85, 40.0, 48.0)]
+    metrics.save_metrics(tmp_path, result, "gt.nrrd", classes=classes)
+    saved = metrics.load_metrics(tmp_path)
+    assert saved["classes"] == [
+        {"label": 1, "dice": 0.95, "pred_volume_mm3": 60.0, "gt_volume_mm3": 62.0},
+        {"label": 2, "dice": 0.85, "pred_volume_mm3": 40.0, "gt_volume_mm3": 48.0},
+    ]
+
+
 def test_save_and_load_metrics(tmp_path):
     result = metrics.MaskMetrics(0.9, 100.0, 110.0, -9.09, 1.5)
     metrics.save_metrics(tmp_path, result, tmp_path / "gt.nrrd", label=2)

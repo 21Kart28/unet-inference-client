@@ -30,7 +30,21 @@ class MaskMetrics:
     note: str = ""
 
 
-def load_mask(path: Path | str, label: int | None = None) -> sitk.Image:
+@dataclass(frozen=True)
+class ClassMetrics:
+    label: int
+    dice: float
+    pred_volume_mm3: float
+    gt_volume_mm3: float
+
+
+@dataclass(frozen=True)
+class ClassBreakdown:
+    overall: MaskMetrics
+    classes: list[ClassMetrics]
+
+
+def load_label_map(path: Path | str) -> sitk.Image:
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(f"File not found: {path}")
@@ -40,6 +54,11 @@ def load_mask(path: Path | str, label: int | None = None) -> sitk.Image:
         raise ValueError(f"Could not read {path.name} as an image.") from None
     if image.GetDimension() != 3 or image.GetNumberOfComponentsPerPixel() != 1:
         raise ValueError(f"{path.name} is not a single 3D volume.")
+    return image
+
+
+def load_mask(path: Path | str, label: int | None = None) -> sitk.Image:
+    image = load_label_map(path)
     if label is None:
         return sitk.NotEqual(image, 0)
     return sitk.Equal(image, label)
@@ -91,6 +110,34 @@ def compare(pred_path: Path | str, gt_path: Path | str, label: int | None = None
     return MaskMetrics(dice, pred_volume, gt_volume, volume_diff, hd95)
 
 
+def class_volumes(path: Path | str) -> dict[int, float]:
+    """Volume in mm3 of every nonzero label in a label map."""
+    image = load_label_map(path)
+    labels, counts = np.unique(_array(image), return_counts=True)
+    voxel = _voxel_volume(image)
+    return {int(label): int(count) * voxel for label, count in zip(labels, counts) if label}
+
+
+def compare_classes(pred_path: Path | str, gt_path: Path | str) -> list[ClassMetrics]:
+    """Dice and volumes for each label present in either the prediction or the ground truth."""
+    pred, gt = load_label_map(pred_path), load_label_map(gt_path)
+    check_same_geometry(pred, gt)
+    pred_array, gt_array = _array(pred), _array(gt)
+    voxel = _voxel_volume(pred)
+    labels = sorted(set(np.unique(pred_array).tolist()) | set(np.unique(gt_array).tolist()))
+    rows = []
+    for label in labels:
+        if not label:
+            continue
+        pred_hits, gt_hits = pred_array == label, gt_array == label
+        pred_count, gt_count = int(pred_hits.sum()), int(gt_hits.sum())
+        overlap = int(np.count_nonzero(pred_hits & gt_hits))
+        rows.append(ClassMetrics(
+            int(label), 2 * overlap / (pred_count + gt_count), pred_count * voxel, gt_count * voxel
+        ))
+    return rows
+
+
 def find_ground_truth(studies_dir: Path | str, case_id: str) -> Path | None:
     folder = Path(studies_dir) / "labels" / "final"
     for extension in LABEL_EXTENSIONS:
@@ -101,12 +148,14 @@ def find_ground_truth(studies_dir: Path | str, case_id: str) -> Path | None:
 
 
 def save_metrics(result_dir: Path | str, metrics: MaskMetrics, gt_path: Path | str,
-                 label: int | None = None) -> None:
+                 label: int | None = None, classes: list[ClassMetrics] | None = None) -> None:
     data = asdict(metrics) | {
         "ground_truth_path": str(gt_path),
         "label": label,
         "computed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
+    if classes is not None:
+        data["classes"] = [asdict(row) for row in classes]
     (Path(result_dir) / METRICS_NAME).write_text(json.dumps(data, indent=2))
 
 
