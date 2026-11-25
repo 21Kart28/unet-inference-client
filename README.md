@@ -55,6 +55,7 @@ second terminal. The app then works end to end with a 4x4x4 toy prediction:
   so the window never freezes.
 - **Metrics.** Dice, volume in mm³, volume difference, and 95th-percentile Hausdorff distance
   between a prediction and its ground-truth label, per case or for every result at once.
+  Multi-class label maps get a per-label Dice and volume table too.
   Exported to CSV alongside the run history.
 - **Model comparison.** The Models tab lines up two models that were run on the same cases
   and shows the Dice delta per case, with a mean and a better/worse count. Try it with

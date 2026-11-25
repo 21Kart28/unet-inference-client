@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from unet_inference_client import metrics, theme
+from unet_inference_client.class_table import ClassTable
 from unet_inference_client.config import Settings
 from unet_inference_client.history import StoredResult
 
@@ -122,6 +123,10 @@ class Job:
     prediction: Path
     ground_truth: Path | None
     save_to: Path | None
+    per_class: bool = False
+
+
+Measurement = metrics.MaskMetrics | metrics.ClassBreakdown | float
 
 
 class CompareWorker(QObject):
@@ -153,13 +158,16 @@ class CompareWorker(QObject):
                 self.job_done.emit(job, result)
         self.finished.emit()
 
-    def _measure(self, job: Job) -> metrics.MaskMetrics | float:
+    def _measure(self, job: Job) -> Measurement:
         if job.ground_truth is None:
             return metrics.volume_mm3(job.prediction, self.label)
         result = metrics.compare(job.prediction, job.ground_truth, self.label, self.include_hd95)
+        classes = metrics.compare_classes(job.prediction, job.ground_truth) if job.per_class else None
         if job.save_to is not None:
-            metrics.save_metrics(job.save_to, result, job.ground_truth, self.label)
-        return result
+            metrics.save_metrics(job.save_to, result, job.ground_truth, self.label, classes)
+        if classes is None:
+            return result
+        return metrics.ClassBreakdown(result, classes)
 
 
 class CompareTab(QWidget):
@@ -204,11 +212,16 @@ class CompareTab(QWidget):
         self.label_edit.setFixedWidth(110)
         self.hd95_box = QCheckBox("Include HD95 (slower)")
         self.hd95_box.setChecked(True)
+        self.per_class_box = QCheckBox("Per-class breakdown")
+        self.per_class_box.setToolTip("Dice and volume for every label value in either file.")
+        self.class_table = ClassTable()
 
         options = QHBoxLayout()
         options.addWidget(self.label_edit)
         options.addSpacing(16)
         options.addWidget(self.hd95_box)
+        options.addSpacing(16)
+        options.addWidget(self.per_class_box)
         options.addStretch()
 
         self.form = QFormLayout()
@@ -236,6 +249,7 @@ class CompareTab(QWidget):
         left = QVBoxLayout()
         left.addLayout(self.form)
         left.addLayout(actions)
+        left.addWidget(self.class_table)
         left.addStretch()
 
         values = QFormLayout()
@@ -344,7 +358,8 @@ class CompareTab(QWidget):
         case_id = result.case_id if result else prediction.name
         save_to = result.output_dir if result and ground_truth else None
         self._show(None)
-        self._start([Job(case_id, prediction, ground_truth, save_to)], label, batch=False)
+        job = Job(case_id, prediction, ground_truth, save_to, self.per_class_box.isChecked())
+        self._start([job], label, batch=False)
 
     def compare_all(self) -> None:
         try:
@@ -449,9 +464,12 @@ class CompareTab(QWidget):
             self.busy_bar.setValue(index - 1)
             self.summary_label.setText(f"Comparing {case_id} ({index}/{total})")
 
-    def _on_job_done(self, job: Job, result: metrics.MaskMetrics | float) -> None:
+    def _on_job_done(self, job: Job, result: Measurement) -> None:
         self.compared += 1
-        if isinstance(result, metrics.MaskMetrics):
+        if isinstance(result, metrics.ClassBreakdown):
+            per_class = ", ".join(f"label {c.label} {format_dice(c.dice)}" for c in result.classes)
+            self.log(f"{job.case_id}: Dice {format_dice(result.overall.dice)} ({per_class})")
+        elif isinstance(result, metrics.MaskMetrics):
             line = f"{job.case_id}: Dice {format_dice(result.dice)}"
             if result.hd95_mm is not None:
                 line += f", HD95 {format_mm(result.hd95_mm)} mm"
@@ -488,7 +506,11 @@ class CompareTab(QWidget):
         if self.saved_any:
             self.metrics_saved.emit()
 
-    def _show(self, result: metrics.MaskMetrics | float | None) -> None:
+    def _show(self, result: Measurement | None) -> None:
+        self.class_table.clear_classes()
+        if isinstance(result, metrics.ClassBreakdown):
+            self.class_table.show_classes(result.classes)
+            result = result.overall
         if isinstance(result, metrics.MaskMetrics):
             values = asdict(result)
             message = result.note
