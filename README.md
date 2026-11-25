@@ -84,6 +84,9 @@ second terminal. The app then works end to end with a 4x4x4 toy prediction:
     ruff check .
     mypy
 
+`pre-commit install` runs ruff and mypy on each commit, and refuses files over 500 KB so a
+scan or label map cannot slip in.
+
 The suite runs against the mock server, so it needs no GPU, model weights or scan data.
 It covers the REST client, metrics, Windows and Linux process control, the Slicer launcher,
 and the Qt window itself (offscreen).
