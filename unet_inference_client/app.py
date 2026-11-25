@@ -434,7 +434,7 @@ class MainWindow(QMainWindow):
         try:
             self.settings.server_port = int(self.server_port_edit.text().strip())
         except ValueError:
-            raise RuntimeError("Port must be a number.")
+            raise RuntimeError("Port must be a number.") from None
         self.settings.gpu_index = self.gpu_edit.text().strip()
         self.settings.server_url = f"http://127.0.0.1:{self.settings.server_port}"
         self.settings.save()

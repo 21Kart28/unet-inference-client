@@ -1,6 +1,6 @@
 import pytest
 
-from unet_inference_client import setup_check, slicer_view
+from unet_inference_client import slicer_view
 from unet_inference_client.setup_check import OK, OPTIONAL, PROBLEM, run_checks
 
 

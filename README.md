@@ -81,6 +81,7 @@ second terminal. The app then works end to end with a 4x4x4 toy prediction:
 
     pip install -e ".[dev]"
     pytest
+    ruff check .
 
 The suite runs against the mock server, so it needs no GPU, model weights or scan data.
 It covers the REST client, metrics, Windows and Linux process control, the Slicer launcher,

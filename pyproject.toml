@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
 unet-client = "unet_inference_client.app:main"
@@ -31,3 +31,16 @@ packages = ["unet_inference_client"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+# zip() over fixed-size geometry tuples; strict= would add noise without catching anything.
+ignore = ["B905"]
+
+[tool.ruff.lint.per-file-ignores]
+# QT_QPA_PLATFORM must be set before PySide6 is imported, so the imports are split on purpose.
+"tests/conftest.py" = ["E402", "I001"]

@@ -28,7 +28,7 @@ class Settings:
     gpu_index: str = "0"
 
     @classmethod
-    def load(cls) -> "Settings":
+    def load(cls) -> Settings:
         if not CONFIG_FILE.exists():
             return cls()
         try:
