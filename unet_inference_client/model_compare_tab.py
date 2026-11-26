@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from unet_inference_client import model_compare, theme
+from unet_inference_client import model_compare, report, theme
 from unet_inference_client.compare_tab import format_dice
 from unet_inference_client.config import Settings
 from unet_inference_client.history import StoredResult
@@ -48,6 +48,8 @@ class ModelCompareTab(QWidget):
             box.currentIndexChanged.connect(self.refresh)
         self.export_button = QPushButton("Export deltas CSV")
         self.export_button.clicked.connect(self.export_csv)
+        self.report_button = QPushButton("Export report")
+        self.report_button.clicked.connect(self.export_report)
 
         pickers = QHBoxLayout()
         pickers.addWidget(self._dim_label("Model A"))
@@ -57,6 +59,7 @@ class ModelCompareTab(QWidget):
         pickers.addWidget(self.model_b_box)
         pickers.addStretch()
         pickers.addWidget(self.export_button)
+        pickers.addWidget(self.report_button)
 
         self.table = QTableWidget(0, len(HEADERS))
         self.table.setHorizontalHeaderLabels(HEADERS)
@@ -132,6 +135,25 @@ class ModelCompareTab(QWidget):
                      " If the file is open in Excel, close it and try again.")
             return
         self.log(f"Dice deltas for {len(self.rows)} case(s) exported to {destination}")
+
+    def export_report(self) -> None:
+        model_a, model_b = self.model_a_box.currentText(), self.model_b_box.currentText()
+        if not self.rows:
+            self.summary_label.setText("Nothing to export yet. Pick two models with saved Dice.")
+            return
+        default = str(self.settings.results_path() / f"models_{model_a}_vs_{model_b}.md")
+        destination, _ = QFileDialog.getSaveFileName(self, "Export report", default, report.FILE_FILTER)
+        if not destination:
+            return
+        document = report.from_deltas(
+            self.rows, model_compare.summarize(self.rows), model_a, model_b, self.settings.server_url
+        )
+        try:
+            report.write(Path(destination), document)
+        except OSError as exc:
+            self.log(f"Could not write {destination}: {exc.strerror or exc}.")
+            return
+        self.log(f"Comparison report for {len(self.rows)} case(s) exported to {destination}")
 
     def _dim_label(self, text: str) -> QLabel:
         label = QLabel(text)

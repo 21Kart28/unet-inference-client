@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from unet_inference_client import metrics, theme
+from unet_inference_client import metrics, report, theme
 from unet_inference_client.class_table import ClassTable
 from unet_inference_client.config import Settings
 from unet_inference_client.history import StoredResult
@@ -304,9 +304,11 @@ class CompareTab(QWidget):
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setEnabled(False)
         self.export_button = QPushButton("Export metrics CSV")
+        self.report_button = QPushButton("Export report")
         self.compare_all_button.clicked.connect(self.compare_all)
         self.cancel_button.clicked.connect(self.cancel)
         self.export_button.clicked.connect(self.export_csv)
+        self.report_button.clicked.connect(self.export_report)
         self.summary_label = QLabel("")
         self.summary_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
         self.summary_label.setWordWrap(True)
@@ -316,6 +318,7 @@ class CompareTab(QWidget):
         buttons.addWidget(self.cancel_button)
         buttons.addStretch()
         buttons.addWidget(self.export_button)
+        buttons.addWidget(self.report_button)
         return buttons
 
     def _file_row(self, line_edit: QLineEdit, browse: Callable[[], None]) -> QWidget:
@@ -411,6 +414,22 @@ class CompareTab(QWidget):
             return
         self.log(f"Metrics for {len(rows)} result(s) exported to {destination}")
 
+    def export_report(self) -> None:
+        document = report.from_results(self.results, self.settings.server_url, self.settings.model)
+        if not document.tables[0].rows:
+            self.summary_label.setText(document.notes[0])
+            return
+        default = str(self.settings.results_path() / "batch_report.md")
+        destination, _ = QFileDialog.getSaveFileName(self, "Export report", default, report.FILE_FILTER)
+        if not destination:
+            return
+        try:
+            report.write(Path(destination), document)
+        except OSError as exc:
+            self.log(f"Could not write {destination}: {exc.strerror or exc}.")
+            return
+        self.log(f"Report for {len(document.tables[0].rows)} result(s) exported to {destination}")
+
     def _start(self, jobs: list[Job], label: int | None, batch: bool) -> None:
         # finished fires just before the old thread exits, and dropping a running QThread aborts.
         if self.worker_thread is not None:
@@ -442,6 +461,7 @@ class CompareTab(QWidget):
         self.compute_button.setEnabled(not busy)
         self.compare_all_button.setEnabled(not busy)
         self.export_button.setEnabled(not busy)
+        self.report_button.setEnabled(not busy)
         self.cancel_button.setEnabled(busy and self.batch_mode)
         self.busy_bar.setVisible(busy)
         if busy:

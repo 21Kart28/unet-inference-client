@@ -16,6 +16,8 @@ All notable changes to this project are documented here. The format follows
 - ruff, mypy and pre-commit configuration; CI runs lint and type checks before the tests.
 - Coverage measured in CI with a 75% floor and a Codecov badge.
 - Dockerfile and compose service for the mock server.
+- Export report buttons in the Compare and Models tabs: a Markdown or HTML report with server,
+  model, per-case table, per-class table when present and summary Dice statistics.
 
 ### Changed
 
