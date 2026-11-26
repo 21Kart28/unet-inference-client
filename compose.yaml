@@ -1,0 +1,9 @@
+services:
+  mock-server:
+    build:
+      context: .
+      dockerfile: tests/mock_server.Dockerfile
+    ports:
+      - "8000:8000"
+    # Add --models deepedit_seg,unet_v2 to try the Models tab, or --gzip to mimic the real server.
+    command: ["--cases", "5"]

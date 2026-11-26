@@ -30,7 +30,7 @@ class MockMonaiLabel:
         self.url = ""
         self._server = None
 
-    def start(self, port: int = 0) -> str:
+    def start(self, port: int = 0, host: str = "127.0.0.1") -> str:
         mock = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -92,8 +92,8 @@ class MockMonaiLabel:
                 self.end_headers()
                 self.wfile.write(body)
 
-        self._server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-        host, port = self._server.server_address
+        self._server = ThreadingHTTPServer((host, port), Handler)
+        host, port = self._server.server_address[:2]
         self.url = f"http://{host}:{port}"
         threading.Thread(target=self._server.serve_forever, daemon=True).start()
         return self.url
@@ -108,6 +108,7 @@ class MockMonaiLabel:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Serve fake MONAI Label endpoints.")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 inside a container")
     parser.add_argument("--cases", type=int, default=5, help="number of fake cases")
     parser.add_argument("--gzip", action="store_true", help="gzip the prediction, as the real server does")
     parser.add_argument("--models", default="deepedit_seg",
@@ -115,7 +116,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     cases = {f"CASE_{n:03d}": n % 3 != 0 for n in range(1, args.cases + 1)}
     mock = MockMonaiLabel(models=args.models.split(","), cases=cases, gzip_output=args.gzip)
-    print(f"Mock MONAI Label server on {mock.start(args.port)}  (Ctrl+C to stop)")
+    print(f"Mock MONAI Label server on {mock.start(args.port, args.host)}  (Ctrl+C to stop)")
     try:
         threading.Event().wait()
     except KeyboardInterrupt:

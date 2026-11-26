@@ -47,6 +47,9 @@ second terminal. The app then works end to end with a 4x4x4 toy prediction:
 
     python tests/mock_server.py --port 8000
 
+With Docker instead, `docker compose up mock-server` builds a small image from
+`tests/mock_server.Dockerfile` and serves the same endpoints on port 8000.
+
 ![Setup tab: five checks, each green, amber or red with a fix hint](docs/setup.png)
 
 ## What it does
