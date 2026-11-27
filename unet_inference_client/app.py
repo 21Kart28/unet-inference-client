@@ -3,6 +3,7 @@
 import shutil
 import sys
 import time
+from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -35,6 +36,7 @@ from unet_inference_client import batch, history, metrics, server, slicer_view, 
 from unet_inference_client.backend import MonaiLabelBackend, ServerSnapshot
 from unet_inference_client.compare_tab import CompareTab, format_dice, format_volume
 from unet_inference_client.config import CONFIG_FILE, Settings
+from unet_inference_client.dicom_import import DicomImporter
 from unet_inference_client.model_compare_tab import ModelCompareTab
 from unet_inference_client.setup_tab import SetupTab
 
@@ -97,6 +99,9 @@ class MainWindow(QMainWindow):
         self.settings = settings
         self.backend = MonaiLabelBackend(settings)
         self.server = server.ServerProcess()
+        self.importer = DicomImporter()
+        self.importer.imported.connect(self.on_dicom_imported)
+        self.importer.failed.connect(self.on_dicom_failed)
         self.thread = None
         self.worker = None
         self.reader_thread = None
@@ -212,16 +217,20 @@ class MainWindow(QMainWindow):
         self.case_box.setMaxVisibleItems(12)
         self.run_button = QPushButton("Run inference")
         self.slicer_button = QPushButton("View in Slicer")
+        self.import_button = QPushButton("Import DICOM folder")
         self.run_button.clicked.connect(self.start_single)
         self.slicer_button.clicked.connect(self.open_slicer)
+        self.import_button.clicked.connect(self.import_dicom)
 
         row = QHBoxLayout()
         row.addWidget(QLabel("Case"))
         row.addWidget(self.case_box, stretch=1)
         row.addWidget(self.run_button)
         row.addWidget(self.slicer_button)
+        row.addWidget(self.import_button)
 
-        hint = QLabel("Runs the model on one case. View opens an existing prediction in 3D Slicer.")
+        hint = QLabel("Runs the model on one case. View opens an existing prediction in 3D Slicer."
+                      " Import converts a DICOM series to NRRD in the studies folder.")
         hint.setStyleSheet(f"color: {theme.TEXT_DIM};")
 
         layout = QVBoxLayout()
@@ -734,6 +743,26 @@ class MainWindow(QMainWindow):
         self._set_busy(False)
         self.reload_results()
 
+    def import_dicom(self) -> None:
+        studies = self.settings.studies_path()
+        if studies is None:
+            self.append("Set the studies folder in Settings first; imported scans are saved there.")
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Select DICOM series folder", str(studies))
+        if not folder:
+            return
+        self.import_button.setEnabled(False)
+        self.append(f"Converting {folder} to NRRD...")
+        self.importer.start(Path(folder), studies)
+
+    def on_dicom_imported(self, path: Path) -> None:
+        self.import_button.setEnabled(True)
+        self.append(f"Saved {path}. Press Refresh once the server has picked it up to see it in the case list.")
+
+    def on_dicom_failed(self, message: str) -> None:
+        self.import_button.setEnabled(True)
+        self.append(message)
+
     def open_slicer(self) -> None:
         case_id = self.case_box.currentData()
         if not case_id:
@@ -762,6 +791,7 @@ class MainWindow(QMainWindow):
             self.status_thread.quit()
             self.status_thread.wait(5000)
         self.setup_tab.close_thread()
+        self.importer.close()
         event.accept()
 
 

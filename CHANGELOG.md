@@ -18,6 +18,8 @@ All notable changes to this project are documented here. The format follows
 - Dockerfile and compose service for the mock server.
 - Export report buttons in the Compare and Models tabs: a Markdown or HTML report with server,
   model, per-case table, per-class table when present and summary Dice statistics.
+- Import DICOM folder button on the Run tab: converts a DICOM series to NRRD in the studies
+  folder on a worker thread, named after the patient ID.
 
 ### Changed
 
