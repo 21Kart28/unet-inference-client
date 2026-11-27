@@ -1,5 +1,6 @@
 """Main window for U-Net Inference Client."""
 
+import logging
 import shutil
 import sys
 import time
@@ -32,7 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from unet_inference_client import batch, history, metrics, server, slicer_view, theme
+from unet_inference_client import batch, history, logs, metrics, server, slicer_view, theme
 from unet_inference_client.backend import MonaiLabelBackend, ServerSnapshot
 from unet_inference_client.compare_tab import CompareTab, format_dice, format_volume
 from unet_inference_client.config import CONFIG_FILE, Settings
@@ -41,6 +42,9 @@ from unet_inference_client.model_compare_tab import ModelCompareTab
 from unet_inference_client.setup_tab import SetupTab
 
 CHECKING = "checking..."
+
+
+ui_log = logging.getLogger("unet_inference_client.ui")
 
 
 def format_duration(seconds: float) -> str:
@@ -418,6 +422,7 @@ class MainWindow(QMainWindow):
 
     def append(self, text: str) -> None:
         self.log.appendPlainText(text)
+        ui_log.info(text)
 
     def save_settings(self) -> None:
         self.settings.server_url = self.server_url_edit.text().strip()
@@ -798,6 +803,7 @@ class MainWindow(QMainWindow):
 def main() -> None:
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.STYLESHEET)
+    logs.configure()
     window = MainWindow(Settings.load(), first_run=not CONFIG_FILE.exists())
     window.show()
     sys.exit(app.exec())

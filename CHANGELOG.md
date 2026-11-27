@@ -20,6 +20,8 @@ All notable changes to this project are documented here. The format follows
   model, per-case table, per-class table when present and summary Dice statistics.
 - Import DICOM folder button on the Run tab: converts a DICOM series to NRRD in the studies
   folder on a worker thread, named after the patient ID.
+- Rotating log file under the config folder (logs/unet-client.log) with every log-pane line and
+  batch failure traceback; Open log folder button in the Setup tab.
 
 ### Changed
 

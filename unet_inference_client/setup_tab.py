@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal
+from PySide6.QtCore import QObject, Qt, QThread, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from unet_inference_client import setup_check, theme
+from unet_inference_client import logs, setup_check, theme
 from unet_inference_client.backend import MonaiLabelBackend
 from unet_inference_client.config import Settings
 
@@ -45,9 +46,12 @@ class SetupTab(QWidget):
         self.headline.setStyleSheet("font-size: 15px;")
         self.rerun_button = QPushButton("Check again")
         self.rerun_button.clicked.connect(self.run)
+        self.log_button = QPushButton("Open log folder")
+        self.log_button.clicked.connect(self.open_log_folder)
 
         top = QHBoxLayout()
         top.addWidget(self.headline, stretch=1)
+        top.addWidget(self.log_button)
         top.addWidget(self.rerun_button)
 
         self.grid = QGridLayout()
@@ -108,6 +112,13 @@ class SetupTab(QWidget):
         problems = [check.name for check in checks if check.state == setup_check.PROBLEM]
         if problems:
             self.log(f"Setup check: fix {', '.join(problems)}.")
+
+    def open_log_folder(self) -> None:
+        if logs.configure() is None:
+            self.log(f"Could not create {logs.LOG_DIR}. Check that the folder is writable.")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(logs.LOG_DIR))):
+            self.log(f"Could not open {logs.LOG_DIR}. Open it in the file manager instead.")
 
     def close_thread(self) -> None:
         if self.worker_thread is not None:

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QObject, Signal
 
 from unet_inference_client.backend import Backend
 from unet_inference_client.history import StoredResult
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -74,6 +77,7 @@ class BatchWorker(QObject):
                 self.case_done.emit(case_id, result.elapsed_seconds)
             except Exception as exc:
                 failed += 1
+                logger.exception("Inference failed for %s", case_id)
                 self.case_failed.emit(case_id, str(exc))
         self.finished.emit(BatchSummary(
             completed, len(self.batch.skipped), failed, self.cancelled, self.remaining
