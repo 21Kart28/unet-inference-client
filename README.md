@@ -100,6 +100,17 @@ and the Qt window itself (offscreen).
 [docs/architecture.md](docs/architecture.md) has a diagram of the client, the MONAI Label
 server, Slicer and the worker threads, and describes what each module owns.
 
+## Windows build
+
+Every `v*` tag builds a Windows folder with PyInstaller and attaches it to a GitHub Release.
+To build locally:
+
+    pip install pyinstaller
+    pyinstaller unet-client.spec
+
+The app is then `dist/unet-client/unet-client.exe`. It still needs a MONAI Label server and,
+for viewing, 3D Slicer; those are not bundled.
+
 ## Dataset layout
 
 The MONAI Label datastore expects one volume file per case at the top level of the
