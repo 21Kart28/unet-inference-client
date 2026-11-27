@@ -22,6 +22,9 @@ All notable changes to this project are documented here. The format follows
   folder on a worker thread, named after the patient ID.
 - Rotating log file under the config folder (logs/unet-client.log) with every log-pane line and
   batch failure traceback; Open log folder button in the Setup tab.
+- Dependabot for pip and GitHub Actions, and a weekly CodeQL scan.
+- Hypothesis property tests for Dice: in [0, 1], symmetric, 1.0 for identical masks, 0.0 for
+  disjoint masks, and per-class Dice equal to the binary Dice of each label.
 
 ### Changed
 

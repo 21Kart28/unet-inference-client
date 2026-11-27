@@ -38,3 +38,6 @@ settings.json
 .coverage
 coverage.xml
 htmlcov/
+
+# Hypothesis example database
+.hypothesis/
