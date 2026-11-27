@@ -26,6 +26,8 @@ All notable changes to this project are documented here. The format follows
 - Hypothesis property tests for Dice: in [0, 1], symmetric, 1.0 for identical masks, 0.0 for
   disjoint masks, and per-class Dice equal to the binary Dice of each label.
 - `docs/architecture.md` with a Mermaid diagram of the client, server, Slicer and worker threads.
+- PyInstaller spec and a release workflow that builds a Windows folder on every `v*` tag,
+  smoke-tests the exe and attaches a zip to the GitHub Release.
 
 ### Changed
 
