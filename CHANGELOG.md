@@ -25,6 +25,7 @@ All notable changes to this project are documented here. The format follows
 - Dependabot for pip and GitHub Actions, and a weekly CodeQL scan.
 - Hypothesis property tests for Dice: in [0, 1], symmetric, 1.0 for identical masks, 0.0 for
   disjoint masks, and per-class Dice equal to the binary Dice of each label.
+- `docs/architecture.md` with a Mermaid diagram of the client, server, Slicer and worker threads.
 
 ### Changed
 

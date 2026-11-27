@@ -97,6 +97,9 @@ The suite runs against the mock server, so it needs no GPU, model weights or sca
 It covers the REST client, metrics, Windows and Linux process control, the Slicer launcher,
 and the Qt window itself (offscreen).
 
+[docs/architecture.md](docs/architecture.md) has a diagram of the client, the MONAI Label
+server, Slicer and the worker threads, and describes what each module owns.
+
 ## Dataset layout
 
 The MONAI Label datastore expects one volume file per case at the top level of the
